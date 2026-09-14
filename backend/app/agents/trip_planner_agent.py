@@ -155,6 +155,9 @@ PLANNER_AGENT_PROMPT = """你是行程规划专家。你的任务是根据景点
 class MultiAgentTripPlanner:
     """多智能体旅行规划系统"""
 
+    # 系统名称(供健康检查等外部接口使用)
+    name: str = "多智能体旅行规划系统"
+
     def __init__(self):
         """初始化多智能体系统"""
         print("🔄 开始初始化多智能体旅行规划系统...")
@@ -220,6 +223,32 @@ class MultiAgentTripPlanner:
             traceback.print_exc()
             raise
     
+    def list_agents(self) -> Dict[str, SimpleAgent]:
+        """
+        列出系统中的所有子Agent
+
+        Returns:
+            角色名 -> SimpleAgent实例 的映射
+        """
+        return {
+            "attraction": self.attraction_agent,
+            "weather": self.weather_agent,
+            "hotel": self.hotel_agent,
+            "planner": self.planner_agent,
+        }
+
+    def list_tools(self) -> List[str]:
+        """
+        列出系统中所有子Agent可用的工具(已去重)
+
+        Returns:
+            工具名称列表
+        """
+        tools = set()
+        for sub_agent in self.list_agents().values():
+            tools.update(sub_agent.list_tools())
+        return sorted(tools)
+
     def plan_trip(self, request: TripRequest) -> TripPlan:
         """
         使用多智能体协作生成旅行计划
