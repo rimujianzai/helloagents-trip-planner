@@ -1,0 +1,42 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // 日常调试用这个: 不开热重载, 断点最稳。
+      // 对应第 03 课"环境搭建与调试基本功"。
+      "name": "后端: 调试 FastAPI (断点稳定)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["app.api.main:app", "--port", "8000"],
+      "cwd": "${workspaceFolder}/backend",
+      "envFile": "${workspaceFolder}/backend/.env",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      // 需要改代码自动重启时用这个。
+      // 注意: --reload 会起子进程, 断点偶尔会跟丢, 属正常现象。
+      "name": "后端: 运行 FastAPI (热重载)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["app.api.main:app", "--reload", "--port", "8000"],
+      "cwd": "${workspaceFolder}/backend",
+      "envFile": "${workspaceFolder}/backend/.env",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      // 走项目自带的启动脚本(它会读 config.py 里的 host/port 设置)
+      "name": "后端: run.py",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/run.py",
+      "cwd": "${workspaceFolder}/backend",
+      "envFile": "${workspaceFolder}/backend/.env",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}

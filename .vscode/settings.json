@@ -1,0 +1,56 @@
+{
+  // ============================================================
+  // Python 解释器：必须指向 backend/venv
+  // 这是修复 "无法解析导入 hello_agents" 的关键一项。
+  // 系统全局 Python(D:\python\python.3.13) 里没有装 hello-agents,
+  // 只有 backend/venv 里装了, 所以 Pylance 必须用这个解释器。
+  // ============================================================
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/venv/Scripts/python.exe",
+
+  // 在集成终端里自动激活 venv(打开终端就能直接用 python)
+  "python.terminal.activateEnvironment": true,
+
+  // 让 Python 扩展加载 backend/.env (调试和部分工具会用到)
+  "python.envFile": "${workspaceFolder}/backend/.env",
+
+  // ============================================================
+  // Pylance 静态分析
+  // ============================================================
+  // backend/ 是 app 包的根目录。加上它以后,
+  // 在工作区任意位置写 `from app.xxx import ...` 都能被解析到。
+  "python.analysis.extraPaths": ["${workspaceFolder}/backend"],
+
+  // basic 只报"真问题"(找不到的导入、未定义变量等),
+  // 不会像 strict 那样对动态代码狂刷警告。
+  "python.analysis.typeCheckingMode": "basic",
+
+  "python.analysis.diagnosticSeverityOverrides": {
+    // hello-agents 这个包没有自带 py.typed 标记(上游没提供类型声明),
+    // 在 strict 模式下会刷一堆 reportMissingTypeStubs, 这里关掉。
+    // 注意: 这不是本项目的 bug, 是第三方包的现状。
+    "reportMissingTypeStubs": "none"
+  },
+
+  // 让 Pylance 索引到 venv 里的第三方包(默认已开, 显式写出来更清楚)
+  "python.analysis.indexing": true,
+
+  // ============================================================
+  // 代码规范 / 显示
+  // ============================================================
+  // 项目里全是中文注释和中文提示词, 编码必须锁死 UTF-8,
+  // 否则 Windows 下容易出乱码。
+  "files.encoding": "utf8",
+  "files.autoGuessEncoding": false,
+
+  // 折叠这些噪音目录, 让资源管理器干净些
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "**/.pytest_cache": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/venv": true,
+    "**/dist": true
+  }
+}

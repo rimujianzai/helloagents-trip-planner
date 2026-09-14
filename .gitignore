@@ -29,7 +29,18 @@ dist-ssr/
 # ============================================
 # 编辑器与系统
 # ============================================
-.vscode/
+# 忽略 .vscode 下的一切(个人偏好、临时状态、插件缓存等),
+# 但把"能帮到别人"的配置放行:
+#   settings.json   —— 固定解释器为 backend/venv, 否则新人打开就报
+#                      "无法解析导入 hello_agents"
+#   extensions.json —— 推荐扩展列表
+#   launch.json     —— 按 F5 就能调试后端的配置
+# 注意: 必须先写 `.vscode/*` 而不是 `.vscode/`,
+# 因为父目录被整体忽略后, 里面的 ! 例外规则会失效。
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
 .idea/
 *.swp
 .DS_Store

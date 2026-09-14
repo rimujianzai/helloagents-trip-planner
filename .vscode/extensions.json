@@ -1,0 +1,10 @@
+{
+  // 打开这个项目时 VSCode 会提示安装这些扩展。
+  // 换一台机器/新同学克隆下来, 装完就能直接开发。
+  "recommendations": [
+    "ms-python.python", // Python 语言支持(负责解释器选择)
+    "ms-python.vscode-pylance", // 静态分析与智能提示(报"无法解析导入"的就是它)
+    "ms-python.debugpy", // 调试器(配合 launch.json 按 F5)
+    "Vue.volar" // Vue3 语言支持(前端)
+  ]
+}
