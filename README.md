@@ -29,36 +29,52 @@
 
 ```
 helloagents-trip-planner/
-├── backend/                    # 后端服务
+├── backend/                            # 后端服务 (FastAPI + HelloAgents)
 │   ├── app/
-│   │   ├── agents/            # Agent实现
-│   │   │   └── trip_planner_agent.py
-│   │   ├── api/               # FastAPI路由
-│   │   │   ├── main.py
+│   │   ├── agents/
+│   │   │   └── trip_planner_agent.py   # 多智能体编排: 景点 / 天气 / 酒店 / 规划
+│   │   ├── api/
+│   │   │   ├── main.py                 # FastAPI 应用入口
 │   │   │   └── routes/
-│   │   │       ├── trip.py
-│   │   │       └── map.py
-│   │   ├── services/          # 服务层
-│   │   │   ├── amap_service.py
-│   │   │   └── llm_service.py
-│   │   ├── models/            # 数据模型
-│   │   │   └── schemas.py
-│   │   └── config.py          # 配置管理
+│   │   │       ├── trip.py             # 旅行计划生成 + 健康检查
+│   │   │       ├── map.py              # 地图与路线服务
+│   │   │       └── poi.py              # POI 检索
+│   │   ├── models/
+│   │   │   └── schemas.py              # Pydantic 数据模型
+│   │   ├── services/
+│   │   │   ├── amap_service.py         # 高德地图服务
+│   │   │   ├── llm_service.py          # LLM 客户端
+│   │   │   └── unsplash_service.py     # Unsplash 配图服务
+│   │   └── config.py                   # 配置管理
+│   ├── run.py                          # 后端启动脚本
 │   ├── requirements.txt
 │   ├── .env.example
 │   └── .gitignore
-├── frontend/                   # 前端应用
+├── frontend/                           # 前端应用 (Vue3 + TypeScript + Vite)
 │   ├── src/
-│   │   ├── components/        # Vue组件
-│   │   ├── services/          # API服务
-│   │   ├── types/             # TypeScript类型
-│   │   └── views/             # 页面视图
+│   │   ├── views/
+│   │   │   ├── Home.vue                # 首页: 填写旅行需求
+│   │   │   └── Result.vue              # 结果页: 行程详情与地图展示
+│   │   ├── services/
+│   │   │   └── api.ts                  # 后端 API 封装 (axios)
+│   │   ├── types/
+│   │   │   └── index.ts                # TypeScript 类型定义
+│   │   ├── App.vue
+│   │   ├── main.ts
+│   │   └── env.d.ts
+│   ├── index.html
 │   ├── package.json
-│   └── vite.config.ts
-├── 教程/                       # 30 课系统教程
-│   ├── 课程大纲.md            # 课程总目录
-│   ├── 学习建议.md            # 六阶段学习路线
-│   └── 第01课 ~ 第30课.md     # 课程正文
+│   ├── package-lock.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   ├── .env.example
+│   └── .gitignore
+├── 教程/                               # 30 课系统教程
+│   ├── 课程大纲.md                     # 课程总目录
+│   ├── 学习建议.md                     # 六阶段学习路线
+│   └── 第01课 ~ 第30课.md              # 课程正文
+├── .vscode/                            # 共享编辑器配置 (解释器 / 调试 / 推荐扩展)
+├── start.bat                           # 一键启动前后端
 └── README.md
 ```
 
