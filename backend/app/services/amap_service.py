@@ -110,7 +110,7 @@ def get_amap_mcp_tool() -> MCPTool:
         _amap_mcp_tool = MCPTool(
             name="amap",
             description="高德地图服务,支持POI搜索、路线规划、天气查询等功能",
-            server_command=["uvx", "amap-mcp-server"],
+            server_command=settings.get_amap_mcp_command(),
             env={"AMAP_MAPS_API_KEY": settings.amap_api_key},
             auto_expand=True  # 自动展开为独立工具
         )
@@ -125,6 +125,12 @@ def get_amap_mcp_tool() -> MCPTool:
                 print(f"     - {tool.get('name', 'unknown')}")
             if len(_amap_mcp_tool._available_tools) > 5:
                 print(f"     ... 还有 {len(_amap_mcp_tool._available_tools) - 5} 个工具")
+        else:
+            # hello_agents 的 _discover_tools 会静默吞掉发现阶段的异常,
+            # 这里必须显式告警, 否则后续只会看到莫名其妙的"工具未找到"。
+            print("⚠️  高德地图MCP工具发现失败: 未获取到任何工具。")
+            print("    常见原因: uvx 不可用 / 网络不通 / MCP 子进程启动即崩溃")
+            print(f"    启动命令: {' '.join(settings.get_amap_mcp_command())}")
     
     return _amap_mcp_tool
 
