@@ -161,9 +161,15 @@ class POIInfo(BaseModel):
     """POI信息"""
     id: str = Field(..., description="POI ID")
     name: str = Field(..., description="名称")
-    type: str = Field(..., description="类型")
-    address: str = Field(..., description="地址")
-    location: Location = Field(..., description="经纬度坐标")
+    type: str = Field(default="", description="类型")
+    address: str = Field(default="", description="地址")
+    # 注意: 高德 maps_text_search 只返回 id/name/address/typecode, 不含经纬度。
+    # 需要坐标时用 AmapService.get_poi_detail() 按 id 补齐, 不要在这里编造默认坐标。
+    location: Optional[Location] = Field(
+        default=None,
+        description="经纬度坐标(搜索结果可能缺失, 需用POI详情补齐)"
+    )
+    typecode: Optional[str] = Field(default=None, description="高德POI分类编码")
     tel: Optional[str] = Field(default=None, description="电话")
 
 
@@ -172,6 +178,13 @@ class POISearchResponse(BaseModel):
     success: bool = Field(..., description="是否成功")
     message: str = Field(default="", description="消息")
     data: List[POIInfo] = Field(default=[], description="POI列表")
+
+
+class POIDetailResponse(BaseModel):
+    """POI详情响应"""
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(default="", description="消息")
+    data: Optional[dict] = Field(default=None, description="POI详情数据")
 
 
 class RouteInfo(BaseModel):

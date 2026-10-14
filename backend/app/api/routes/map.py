@@ -1,6 +1,7 @@
 """地图服务API路由"""
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from typing import Optional
 from ...models.schemas import (
     POISearchRequest,
@@ -40,8 +41,16 @@ async def search_poi(
         # 获取服务实例
         service = get_amap_service()
         
-        # 搜索POI
-        pois = service.search_poi(keywords, city, citylimit)
+        # 搜索POI (同步阻塞的 MCP 调用, 放线程池避免卡住事件循环)
+        pois = await run_in_threadpool(service.search_poi, keywords, city, citylimit)
+        
+        if pois is None:
+            # 服务层用 None 表示调用失败, 不能包装成"搜索成功但没结果"
+            return POISearchResponse(
+                success=False,
+                message="POI搜索失败, 请稍后重试",
+                data=[]
+            )
         
         return POISearchResponse(
             success=True,
@@ -79,8 +88,15 @@ async def get_weather(
         # 获取服务实例
         service = get_amap_service()
         
-        # 查询天气
-        weather_info = service.get_weather(city)
+        # 查询天气 (同步阻塞调用, 放线程池避免卡住事件循环)
+        weather_info = await run_in_threadpool(service.get_weather, city)
+        
+        if weather_info is None:
+            return WeatherResponse(
+                success=False,
+                message="天气查询失败, 请稍后重试",
+                data=[]
+            )
         
         return WeatherResponse(
             success=True,
@@ -116,14 +132,22 @@ async def plan_route(request: RouteRequest):
         # 获取服务实例
         service = get_amap_service()
         
-        # 规划路线
-        route_info = service.plan_route(
-            origin_address=request.origin_address,
-            destination_address=request.destination_address,
-            origin_city=request.origin_city,
-            destination_city=request.destination_city,
-            route_type=request.route_type
+        # 规划路线 (同步阻塞调用, 放线程池避免卡住事件循环)
+        route_info = await run_in_threadpool(
+            service.plan_route,
+            request.origin_address,
+            request.destination_address,
+            request.origin_city,
+            request.destination_city,
+            request.route_type
         )
+        
+        if route_info is None:
+            return RouteResponse(
+                success=False,
+                message="路线规划失败, 请检查地址是否正确后重试",
+                data=None
+            )
         
         return RouteResponse(
             success=True,

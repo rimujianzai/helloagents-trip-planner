@@ -1,12 +1,94 @@
 """高德地图MCP服务封装"""
 
+import json
+import re
 from typing import List, Dict, Any, Optional
+
 from hello_agents.tools import MCPTool
+
 from ..config import get_settings
-from ..models.schemas import Location, POIInfo, WeatherInfo
+from ..models.schemas import Location, POIInfo, RouteInfo, WeatherInfo
 
 # 全局MCP工具实例
 _amap_mcp_tool = None
+
+
+# ============ MCP 返回解析辅助 ============
+#
+# 为什么需要这一层:
+# 1. hello_agents 的 MCPTool.run() 返回的是字符串(形如 "工具 'xxx' 执行结果:\n{...}"),
+#    不是结构化数据, 得自己从文本里把 JSON 抠出来。
+# 2. amap-mcp-server 在上游接口失败时返回 {"error": "..."}, 既不抛异常也不给错误码,
+#    所以"调用到底成功没有"必须由我们显式判定。
+#
+# 全文件统一的哨兵语义:
+#   None -> 调用失败(网络错误 / MCP 报错 / 返回内容不可解析)
+#   []   -> 调用成功, 但确实没有数据
+# 这样调用方才能区分"服务挂了"和"这里就是没结果", 而不是把失败伪装成空数据。
+
+
+def _as_text(value: Any) -> str:
+    """把高德返回的字段规整成字符串。
+
+    高德在字段缺失时经常返回空列表 [] 而不是 null,
+    直接 str() 会得到 "[]" 这种字面量脏数据。
+    """
+    if value is None or isinstance(value, (list, dict)):
+        return ""
+    return str(value).strip()
+
+
+def _as_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+    """把高德返回的数字字符串转成 int(可能是 "1234.0" 这种), 失败时返回 default"""
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_mcp_json(result: Any) -> Optional[Dict[str, Any]]:
+    """从 MCP 工具返回的文本中提取 JSON 对象。
+
+    Returns:
+        解析成功且不含 error 键时返回 dict; 否则返回 None
+    """
+    match = re.search(r'\{.*\}', str(result or ""), re.DOTALL)
+    if not match:
+        print("⚠️ MCP 返回内容中未找到 JSON, 视为调用失败")
+        return None
+
+    try:
+        data = json.loads(match.group())
+    except json.JSONDecodeError as e:
+        print(f"⚠️ MCP 返回的 JSON 解析失败: {e}")
+        return None
+
+    if not isinstance(data, dict):
+        print("⚠️ MCP 返回的 JSON 不是对象, 视为调用失败")
+        return None
+
+    # MCP server 报错时返回 {"error": ...}, 这里统一拦掉, 不让它流到业务层
+    if "error" in data:
+        print(f"⚠️ MCP 工具返回错误: {data['error']}")
+        return None
+
+    return data
+
+
+def _parse_location(value: Any) -> Optional[Location]:
+    """解析高德的 "经度,纬度" 坐标字符串"""
+    text = _as_text(value)
+    if not text:
+        return None
+
+    parts = text.split(",")
+    if len(parts) != 2:
+        return None
+
+    try:
+        return Location(longitude=float(parts[0]), latitude=float(parts[1]))
+    except ValueError:
+        return None
 
 
 def get_amap_mcp_tool() -> MCPTool:
@@ -54,17 +136,25 @@ class AmapService:
         """初始化服务"""
         self.mcp_tool = get_amap_mcp_tool()
     
-    def search_poi(self, keywords: str, city: str, citylimit: bool = True) -> List[POIInfo]:
+    def search_poi(
+        self,
+        keywords: str,
+        city: str,
+        citylimit: bool = True
+    ) -> Optional[List[POIInfo]]:
         """
         搜索POI
-        
+
         Args:
             keywords: 搜索关键词
             city: 城市
             citylimit: 是否限制在城市范围内
-            
+
         Returns:
-            POI信息列表
+            POI信息列表; None 表示调用失败
+
+        注意: maps_text_search 只返回 id/name/address/typecode, 不含经纬度。
+        需要坐标时用 get_poi_detail() 按 id 补齐。
         """
         try:
             # 调用MCP工具
@@ -77,20 +167,38 @@ class AmapService:
                     "citylimit": str(citylimit).lower()
                 }
             })
-            
-            # 解析结果
-            # 注意: MCP工具返回的是字符串,需要解析
-            # 这里简化处理,实际应该解析JSON
-            print(f"POI搜索结果: {result[:200]}...")  # 打印前200字符
-            
-            # TODO: 解析实际的POI数据
-            return []
-            
+
+            print(f"POI搜索结果: {str(result)[:200]}...")
+
+            data = _parse_mcp_json(result)
+            if data is None:
+                return None
+
+            pois: List[POIInfo] = []
+            for item in data.get("pois") or []:
+                if not isinstance(item, dict):
+                    continue
+
+                poi_id = _as_text(item.get("id"))
+                name = _as_text(item.get("name"))
+                if not poi_id or not name:
+                    # id/name 是 POIInfo 的必填字段, 缺任意一个都拼不出合法对象
+                    continue
+
+                pois.append(POIInfo(
+                    id=poi_id,
+                    name=name,
+                    typecode=_as_text(item.get("typecode")) or None,
+                    address=_as_text(item.get("address")),
+                ))
+
+            return pois
+
         except Exception as e:
             print(f"❌ POI搜索失败: {str(e)}")
-            return []
+            return None
     
-    def get_weather(self, city: str) -> List[WeatherInfo]:
+    def get_weather(self, city: str) -> Optional[List[WeatherInfo]]:
         """
         查询天气
         
@@ -98,7 +206,7 @@ class AmapService:
             city: 城市名称
             
         Returns:
-            天气信息列表
+            天气信息列表(通常是未来几天); None 表示调用失败
         """
         try:
             # 调用MCP工具
@@ -109,15 +217,40 @@ class AmapService:
                     "city": city
                 }
             })
-            
-            print(f"天气查询结果: {result[:200]}...")
-            
-            # TODO: 解析实际的天气数据
-            return []
-            
+
+            print(f"天气查询结果: {str(result)[:200]}...")
+
+            data = _parse_mcp_json(result)
+            if data is None:
+                return None
+
+            weather_list: List[WeatherInfo] = []
+            for cast in data.get("forecasts") or []:
+                if not isinstance(cast, dict):
+                    continue
+
+                date_str = _as_text(cast.get("date"))
+                if not date_str:
+                    # date 是 WeatherInfo 的必填字段
+                    continue
+
+                weather_list.append(WeatherInfo(
+                    date=date_str,
+                    day_weather=_as_text(cast.get("dayweather")),
+                    night_weather=_as_text(cast.get("nightweather")),
+                    # 温度原样交给 WeatherInfo 的 parse_temperature 校验器处理,
+                    # 它会洗掉 "°C" 之类的单位; 这里提前转 int 反而会丢掉这个能力
+                    day_temp=cast.get("daytemp") or 0,
+                    night_temp=cast.get("nighttemp") or 0,
+                    wind_direction=_as_text(cast.get("daywind")),
+                    wind_power=_as_text(cast.get("daypower")),
+                ))
+
+            return weather_list
+
         except Exception as e:
             print(f"❌ 天气查询失败: {str(e)}")
-            return []
+            return None
     
     def plan_route(
         self,
@@ -126,7 +259,7 @@ class AmapService:
         origin_city: Optional[str] = None,
         destination_city: Optional[str] = None,
         route_type: str = "walking"
-    ) -> Dict[str, Any]:
+    ) -> Optional[RouteInfo]:
         """
         规划路线
         
@@ -138,7 +271,11 @@ class AmapService:
             route_type: 路线类型 (walking/driving/transit)
             
         Returns:
-            路线信息
+            路线信息; None 表示调用失败
+
+        说明: 三种路线类型的返回结构并不一致 ——
+        步行/驾车是 route.paths[], 公共交通是 route.transits[],
+        这里统一归一化成 RouteInfo(距离/时长/描述)。
         """
         try:
             # 根据路线类型选择工具
@@ -151,23 +288,16 @@ class AmapService:
             tool_name = tool_map.get(route_type, "maps_direction_walking_by_address")
             
             # 构建参数
-            arguments = {
+            arguments: Dict[str, Any] = {
                 "origin_address": origin_address,
                 "destination_address": destination_address
             }
-            
-            # 公共交通需要城市参数
-            if route_type == "transit":
-                if origin_city:
-                    arguments["origin_city"] = origin_city
-                if destination_city:
-                    arguments["destination_city"] = destination_city
-            else:
-                # 其他路线类型也可以提供城市参数提高准确性
-                if origin_city:
-                    arguments["origin_city"] = origin_city
-                if destination_city:
-                    arguments["destination_city"] = destination_city
+
+            # 提供城市参数可以提高地址解析(geocode)的准确性; 公共交通则必须传
+            if origin_city:
+                arguments["origin_city"] = origin_city
+            if destination_city:
+                arguments["destination_city"] = destination_city
             
             # 调用MCP工具
             result = self.mcp_tool.run({
@@ -176,15 +306,114 @@ class AmapService:
                 "arguments": arguments
             })
             
-            print(f"路线规划结果: {result[:200]}...")
-            
-            # TODO: 解析实际的路线数据
-            return {}
+            print(f"路线规划结果: {str(result)[:200]}...")
+
+            data = _parse_mcp_json(result)
+            if data is None:
+                return None
+
+            route = data.get("route")
+            if not isinstance(route, dict):
+                print("⚠️ 路线规划返回中缺少 route 字段")
+                return None
+
+            # 公共交通的返回结构与步行/驾车完全不同, 单独归一化
+            if route_type == "transit":
+                return self._parse_transit_route(route, origin_address, destination_address)
+
+            paths = route.get("paths") or []
+            if not paths or not isinstance(paths[0], dict):
+                print("⚠️ 路线规划未返回可用路径")
+                return None
+
+            path = paths[0]
+            distance = _as_int(path.get("distance"))
+            duration = _as_int(path.get("duration"))
+            if distance is None or duration is None:
+                print("⚠️ 路线规划返回的距离/时长为空")
+                return None
+
+            description = self._describe_steps(path.get("steps"))
+            if not description:
+                description = f"{origin_address} → {destination_address}"
+
+            return RouteInfo(
+                distance=float(distance),
+                duration=duration,
+                route_type=route_type,
+                description=description
+            )
             
         except Exception as e:
             print(f"❌ 路线规划失败: {str(e)}")
-            return {}
-    
+            return None
+
+    @staticmethod
+    def _describe_steps(steps: Any) -> str:
+        """把路线 steps 里的导航指令拼成一句话"""
+        if not isinstance(steps, list):
+            return ""
+
+        instructions = [
+            _as_text(step.get("instruction"))
+            for step in steps
+            if isinstance(step, dict)
+        ]
+        instructions = [text for text in instructions if text]
+
+        return " → ".join(instructions[:3])
+
+    @staticmethod
+    def _parse_transit_route(
+        route: Dict[str, Any],
+        origin_address: str,
+        destination_address: str
+    ) -> Optional[RouteInfo]:
+        """归一化公共交通路线。
+
+        transit 的结构是 route.transits[] -> segments[] -> bus.buslines[],
+        这里取第一条方案, 用沿途公交/地铁线路名拼出描述。
+        """
+        transits = route.get("transits") or []
+        if not transits or not isinstance(transits[0], dict):
+            print("⚠️ 公共交通路线未返回可用方案")
+            return None
+
+        transit = transits[0]
+
+        duration = _as_int(transit.get("duration"))
+        if duration is None:
+            print("⚠️ 公共交通路线缺少时长")
+            return None
+
+        # route.distance 是方案总距离; 缺失时用步行距离兜底
+        distance = _as_int(route.get("distance"))
+        if distance is None:
+            distance = _as_int(transit.get("walking_distance"), 0)
+
+        lines: List[str] = []
+        for segment in transit.get("segments") or []:
+            if not isinstance(segment, dict):
+                continue
+            bus = segment.get("bus")
+            if not isinstance(bus, dict):
+                continue
+            for busline in bus.get("buslines") or []:
+                if not isinstance(busline, dict):
+                    continue
+                name = _as_text(busline.get("name"))
+                if name and name not in lines:
+                    lines.append(name)
+
+        description = " → ".join(lines) if lines else f"{origin_address} → {destination_address}"
+
+        return RouteInfo(
+            distance=float(distance or 0),
+            duration=duration,
+            route_type="transit",
+            description=description
+        )
+
     def geocode(self, address: str, city: Optional[str] = None) -> Optional[Location]:
         """
         地理编码(地址转坐标)
@@ -194,10 +423,10 @@ class AmapService:
             city: 城市
 
         Returns:
-            经纬度坐标
+            经纬度坐标; None 表示调用失败或该地址解析不出坐标
         """
         try:
-            arguments = {"address": address}
+            arguments: Dict[str, Any] = {"address": address}
             if city:
                 arguments["city"] = city
 
@@ -207,16 +436,28 @@ class AmapService:
                 "arguments": arguments
             })
 
-            print(f"地理编码结果: {result[:200]}...")
+            print(f"地理编码结果: {str(result)[:200]}...")
 
-            # TODO: 解析实际的坐标数据
+            data = _parse_mcp_json(result)
+            if data is None:
+                return None
+
+            # maps_geo 的结果放在 "return" 键下(是个列表, 可能为空)
+            for item in data.get("return") or []:
+                if not isinstance(item, dict):
+                    continue
+                location = _parse_location(item.get("location"))
+                if location:
+                    return location
+
+            print(f"⚠️ 地理编码未解析出坐标: {address}")
             return None
 
         except Exception as e:
             print(f"❌ 地理编码失败: {str(e)}")
             return None
 
-    def get_poi_detail(self, poi_id: str) -> Dict[str, Any]:
+    def get_poi_detail(self, poi_id: str) -> Optional[Dict[str, Any]]:
         """
         获取POI详情
 
@@ -224,7 +465,7 @@ class AmapService:
             poi_id: POI ID
 
         Returns:
-            POI详情信息
+            POI详情信息; None 表示调用失败
         """
         try:
             result = self.mcp_tool.run({
@@ -235,23 +476,13 @@ class AmapService:
                 }
             })
 
-            print(f"POI详情结果: {result[:200]}...")
+            print(f"POI详情结果: {str(result)[:200]}...")
 
-            # 解析结果并提取图片
-            import json
-            import re
-
-            # 尝试从结果中提取JSON
-            json_match = re.search(r'\{.*\}', result, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group())
-                return data
-
-            return {"raw": result}
+            return _parse_mcp_json(result)
 
         except Exception as e:
             print(f"❌ 获取POI详情失败: {str(e)}")
-            return {}
+            return None
 
 
 # 创建全局服务实例
