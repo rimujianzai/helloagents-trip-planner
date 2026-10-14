@@ -34,6 +34,18 @@ class Settings(BaseSettings):
     # 高德地图API配置
     amap_api_key: str = ""
 
+    # 高德地图MCP服务启动参数
+    #
+    # 为什么要锁 pydantic<2.12:
+    # amap-mcp-server 依赖的 mcp SDK 会从 pydantic 内部导入 eval_type_backport,
+    # 而 pydantic 2.12 起移除了这个符号。uvx 默认会解析到最新 pydantic,
+    # 于是 MCP 子进程一启动就 ImportError 崩溃 —— 上层表现为 fastmcp 的
+    # "Connection closed", 而 hello_agents 的 _discover_tools 会**静默**吞掉这个异常
+    # 并把可用工具置空, 最终 Agent 报出「未找到工具 'amap_maps_text_search'」。
+    # 不要把这里的约束去掉。
+    amap_mcp_package: str = "amap-mcp-server"
+    amap_mcp_pydantic_constraint: str = "pydantic<2.12"
+
     # Unsplash API配置
     unsplash_access_key: str = ""
     unsplash_secret_key: str = ""
@@ -54,6 +66,20 @@ class Settings(BaseSettings):
     def get_cors_origins_list(self) -> List[str]:
         """获取CORS origins列表"""
         return [origin.strip() for origin in self.cors_origins.split(',')]
+
+    def get_amap_mcp_command(self) -> List[str]:
+        """
+        获取启动高德地图MCP服务的命令
+
+        Returns:
+            uvx 启动命令, 形如
+            ["uvx", "--with", "pydantic<2.12", "amap-mcp-server"]
+        """
+        return [
+            "uvx",
+            "--with", self.amap_mcp_pydantic_constraint,
+            self.amap_mcp_package,
+        ]
 
 
 # 创建全局配置实例

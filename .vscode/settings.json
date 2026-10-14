@@ -52,19 +52,5 @@
     "**/node_modules": true,
     "**/venv": true,
     "**/dist": true
-  },
-
-  // ============================================================
-  // Python Environments 扩展 (ms-python.vscode-python-envs)
-  // ============================================================
-  // 新版 Python 扩展装了 Python Environments 后, 解释器由它接管。
-  // 它默认值是 "ms-python.python:venv", 一旦被设成 "system",
-  // 它就会用系统全局 Python(D:\python\python.3.13, 里面没有装
-  // hello-agents), Pylance 立刻报"无法解析导入 hello_agents"。
-  "python-envs.defaultEnvManager": "ms-python.python:system",
-
-  // 该扩展默认只在工作区里找 .venv / */.venv,
-  // 本项目的虚拟环境在 backend/venv, 两个默认模式都匹配不到,
-  // 不显式加上这一条, 环境选择列表里就看不到它。
-  "python-envs.workspaceSearchPaths": [".venv", "*/.venv", "backend/venv"]
+  }
 }

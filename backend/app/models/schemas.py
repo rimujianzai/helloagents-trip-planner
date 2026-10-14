@@ -1,24 +1,25 @@
 """数据模型定义"""
 
 from typing import List, Optional, Union
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
+from datetime import date
 
 
 # ============ 请求模型 ============
 
 class TripRequest(BaseModel):
     """旅行规划请求"""
-    city: str = Field(..., description="目的地城市", examples=["北京"])
-    start_date: str = Field(..., description="开始日期 YYYY-MM-DD", examples=["2025-06-01"])
-    end_date: str = Field(..., description="结束日期 YYYY-MM-DD", examples=["2025-06-03"])
-    travel_days: int = Field(..., description="旅行天数", ge=1, le=30, examples=[3])
-    transportation: str = Field(..., description="交通方式", examples=["公共交通"])
-    accommodation: str = Field(..., description="住宿偏好", examples=["经济型酒店"])
-    preferences: List[str] = Field(default=[], description="旅行偏好标签", examples=[["历史文化", "美食"]])
-    free_text_input: Optional[str] = Field(default="", description="额外要求", examples=["希望多安排一些博物馆"])
-
-    model_config = ConfigDict(
-        json_schema_extra={
+    city: str = Field(..., description="目的地城市", example="北京")
+    start_date: str = Field(..., description="开始日期 YYYY-MM-DD", example="2025-06-01")
+    end_date: str = Field(..., description="结束日期 YYYY-MM-DD", example="2025-06-03")
+    travel_days: int = Field(..., description="旅行天数", ge=1, le=30, example=3)
+    transportation: str = Field(..., description="交通方式", example="公共交通")
+    accommodation: str = Field(..., description="住宿偏好", example="经济型酒店")
+    preferences: List[str] = Field(default=[], description="旅行偏好标签", example=["历史文化", "美食"])
+    free_text_input: Optional[str] = Field(default="", description="额外要求", example="希望多安排一些博物馆")
+    
+    class Config:
+        json_schema_extra = {
             "example": {
                 "city": "北京",
                 "start_date": "2025-06-01",
@@ -30,20 +31,19 @@ class TripRequest(BaseModel):
                 "free_text_input": "希望多安排一些博物馆"
             }
         }
-    )
 
 
 class POISearchRequest(BaseModel):
     """POI搜索请求"""
-    keywords: str = Field(..., description="搜索关键词", examples=["故宫"])
-    city: str = Field(..., description="城市", examples=["北京"])
+    keywords: str = Field(..., description="搜索关键词", example="故宫")
+    city: str = Field(..., description="城市", example="北京")
     citylimit: bool = Field(default=True, description="是否限制在城市范围内")
 
 
 class RouteRequest(BaseModel):
     """路线规划请求"""
-    origin_address: str = Field(..., description="起点地址", examples=["北京市朝阳区阜通东大街6号"])
-    destination_address: str = Field(..., description="终点地址", examples=["北京市海淀区上地十街10号"])
+    origin_address: str = Field(..., description="起点地址", example="北京市朝阳区阜通东大街6号")
+    destination_address: str = Field(..., description="终点地址", example="北京市海淀区上地十街10号")
     origin_city: Optional[str] = Field(default=None, description="起点城市")
     destination_city: Optional[str] = Field(default=None, description="终点城市")
     route_type: str = Field(default="walking", description="路线类型: walking/driving/transit")
@@ -119,16 +119,15 @@ class WeatherInfo(BaseModel):
     @field_validator('day_temp', 'night_temp', mode='before')
     @classmethod
     def parse_temperature(cls, v):
-        """解析温度, 兼容 '25°C' 这类字符串与 25.5 这类浮点数, 无法解析时归 0"""
+        """解析温度,移除°C等单位"""
         if isinstance(v, str):
             # 移除°C, ℃等单位符号
             v = v.replace('°C', '').replace('℃', '').replace('°', '').strip()
-        if v is None or isinstance(v, bool):
-            return 0
-        try:
-            return int(round(float(v)))
-        except (TypeError, ValueError):
-            return 0
+            try:
+                return int(v)
+            except ValueError:
+                return 0
+        return v
 
 
 class Budget(BaseModel):
@@ -150,18 +149,6 @@ class TripPlan(BaseModel):
     overall_suggestions: str = Field(..., description="总体建议")
     budget: Optional[Budget] = Field(default=None, description="预算信息")
 
-    @model_validator(mode='after')
-    def normalize_day_index(self):
-        """把 day_index 归一到数组下标(从0开始)。
-
-        LLM 输出并不可靠: 实测同一份提示词, 一次返回 0 基的 [0,1], 另一次返回
-        1 基的 [1,2]。而下游既用它渲染"第N天", 又拿它当 days 数组下标, 不归一
-        化会显示错天号, 甚至索引越界。
-        """
-        for i, day in enumerate(self.days):
-            day.day_index = i
-        return self
-
 
 class TripPlanResponse(BaseModel):
     """旅行计划响应"""
@@ -175,12 +162,14 @@ class POIInfo(BaseModel):
     id: str = Field(..., description="POI ID")
     name: str = Field(..., description="名称")
     type: str = Field(default="", description="类型")
-    typecode: Optional[str] = Field(default=None, description="高德类型编码")
     address: str = Field(default="", description="地址")
-    # 高德关键词搜索(maps_text_search)只返回 id/name/address/typecode, 不含经纬度;
-    # 只有 POI 详情接口(maps_search_detail)才返回 location。
-    # 所以这里允许为空, 需要坐标时用 get_poi_detail(poi_id) 补齐, 不编造坐标。
-    location: Optional[Location] = Field(default=None, description="经纬度坐标")
+    # 注意: 高德 maps_text_search 只返回 id/name/address/typecode, 不含经纬度。
+    # 需要坐标时用 AmapService.get_poi_detail() 按 id 补齐, 不要在这里编造默认坐标。
+    location: Optional[Location] = Field(
+        default=None,
+        description="经纬度坐标(搜索结果可能缺失, 需用POI详情补齐)"
+    )
+    typecode: Optional[str] = Field(default=None, description="高德POI分类编码")
     tel: Optional[str] = Field(default=None, description="电话")
 
 
@@ -189,6 +178,13 @@ class POISearchResponse(BaseModel):
     success: bool = Field(..., description="是否成功")
     message: str = Field(default="", description="消息")
     data: List[POIInfo] = Field(default=[], description="POI列表")
+
+
+class POIDetailResponse(BaseModel):
+    """POI详情响应"""
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(default="", description="消息")
+    data: Optional[dict] = Field(default=None, description="POI详情数据")
 
 
 class RouteInfo(BaseModel):

@@ -1,14 +1,11 @@
 import axios from 'axios'
 import type { TripFormData, TripPlanResponse } from '@/types'
 
-// 后端地址唯一来源: 其它模块(如 Result.vue 的图片请求)也必须复用这个常量, 不要硬编码
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  // 一次行程要串行调用 4 次 LLM(景点/天气/酒店/规划), 实测 2 天行程约 42 秒,
-  // 5 天以上会远超 2 分钟, 所以放宽到 5 分钟, 避免前端提前中断而后端仍在生成
-  timeout: 300000,
+  timeout: 120000, // 2分钟超时
   headers: {
     'Content-Type': 'application/json'
   }

@@ -2,7 +2,9 @@
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
+from typing import Optional
 from ...models.schemas import (
+    POISearchRequest,
     POISearchResponse,
     RouteRequest,
     RouteResponse,
@@ -20,41 +22,39 @@ router = APIRouter(prefix="/map", tags=["地图服务"])
     description="根据关键词搜索POI(兴趣点)"
 )
 async def search_poi(
-    keywords: str = Query(..., description="搜索关键词", examples=["故宫"]),
-    city: str = Query(..., description="城市", examples=["北京"]),
+    keywords: str = Query(..., description="搜索关键词", example="故宫"),
+    city: str = Query(..., description="城市", example="北京"),
     citylimit: bool = Query(True, description="是否限制在城市范围内")
 ):
     """
     搜索POI
-
+    
     Args:
         keywords: 搜索关键词
         city: 城市
         citylimit: 是否限制在城市范围内
-
+        
     Returns:
         POI搜索结果
     """
     try:
         # 获取服务实例
         service = get_amap_service()
-
-        # 搜索POI (同步阻塞调用, 放线程池避免卡住事件循环)
+        
+        # 搜索POI (同步阻塞的 MCP 调用, 放线程池避免卡住事件循环)
         pois = await run_in_threadpool(service.search_poi, keywords, city, citylimit)
-
-        # search_poi 调用失败返回 None, 成功但确实没结果返回 []。
-        # None 必须在这里拦下: 否则"接口失败"会被伪装成"搜索成功但没有结果",
-        # 调用方无法区分这两种完全不同的情况。
+        
         if pois is None:
+            # 服务层用 None 表示调用失败, 不能包装成"搜索成功但没结果"
             return POISearchResponse(
                 success=False,
-                message="POI搜索失败: 未获取到有效数据",
+                message="POI搜索失败, 请稍后重试",
                 data=[]
             )
-
+        
         return POISearchResponse(
             success=True,
-            message=f"POI搜索成功, 共 {len(pois)} 条结果",
+            message="POI搜索成功",
             data=pois
         )
         
@@ -73,23 +73,30 @@ async def search_poi(
     description="查询指定城市的天气信息"
 )
 async def get_weather(
-    city: str = Query(..., description="城市名称", examples=["北京"])
+    city: str = Query(..., description="城市名称", example="北京")
 ):
     """
     查询天气
-
+    
     Args:
         city: 城市名称
-
+        
     Returns:
         天气信息
     """
     try:
         # 获取服务实例
         service = get_amap_service()
-
-        # 查询天气 (同步阻塞调用, 放线程池)
+        
+        # 查询天气 (同步阻塞调用, 放线程池避免卡住事件循环)
         weather_info = await run_in_threadpool(service.get_weather, city)
+        
+        if weather_info is None:
+            return WeatherResponse(
+                success=False,
+                message="天气查询失败, 请稍后重试",
+                data=[]
+            )
         
         return WeatherResponse(
             success=True,
@@ -124,8 +131,8 @@ async def plan_route(request: RouteRequest):
     try:
         # 获取服务实例
         service = get_amap_service()
-
-        # 规划路线 (同步阻塞调用, 放线程池)
+        
+        # 规划路线 (同步阻塞调用, 放线程池避免卡住事件循环)
         route_info = await run_in_threadpool(
             service.plan_route,
             request.origin_address,
@@ -134,24 +141,20 @@ async def plan_route(request: RouteRequest):
             request.destination_city,
             request.route_type
         )
-
-        # plan_route 解析失败时返回 None, 必须在这里拦下:
-        # 直接把 None 之外的空字典塞进 RouteResponse 会因为缺少必填字段
-        # 触发 ValidationError, 被下面的 except 转成 500 并把 Pydantic
-        # 内部报错原样泄露给调用方。
+        
         if route_info is None:
             return RouteResponse(
                 success=False,
-                message="路线规划失败: 未能获取到路线数据",
+                message="路线规划失败, 请检查地址是否正确后重试",
                 data=None
             )
-
+        
         return RouteResponse(
             success=True,
             message="路线规划成功",
             data=route_info
         )
-
+        
     except Exception as e:
         print(f"❌ 路线规划失败: {str(e)}")
         raise HTTPException(

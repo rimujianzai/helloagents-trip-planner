@@ -171,11 +171,22 @@ class MultiAgentTripPlanner:
             self.amap_tool = MCPTool(
                 name="amap",
                 description="高德地图服务",
-                server_command=["uvx", "amap-mcp-server"],
+                server_command=settings.get_amap_mcp_command(),
                 env={"AMAP_MAPS_API_KEY": settings.amap_api_key},
                 auto_expand=True
             )
             self.amap_tool.expandable=True
+
+            # 工具发现失败时 _available_tools 为空, 展开会静默失败,
+            # 最终表现为 Agent 报「未找到工具 'amap_maps_text_search'」。
+            # 这里显式检查一次, 让问题在初始化阶段就暴露出来。
+            if not self.amap_tool._available_tools:
+                raise RuntimeError(
+                    "高德地图MCP工具发现失败: 未能从 amap-mcp-server 获取到任何工具。"
+                    "请检查 uvx 是否可用、网络是否正常, "
+                    "以及启动命令中的 pydantic 版本约束是否仍然必要。"
+                )
+            print(f"  - MCP工具发现成功: {len(self.amap_tool._available_tools)} 个")
 
             # 创建景点搜索Agent
             print("  - 创建景点搜索Agent...")
