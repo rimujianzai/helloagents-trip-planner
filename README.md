@@ -74,7 +74,6 @@ helloagents-trip-planner/
 │   ├── 学习建议.md                     # 六阶段学习路线
 │   └── 第01课 ~ 第30课.md              # 课程正文
 ├── .vscode/                            # 共享编辑器配置 (解释器 / 调试 / 推荐扩展)
-├── start.bat                           # 一键启动前后端
 └── README.md
 ```
 

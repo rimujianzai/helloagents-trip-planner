@@ -1,7 +1,6 @@
 """LLM服务模块"""
 
 from hello_agents import HelloAgentsLLM
-from ..config import get_settings
 
 # 全局LLM实例
 _llm_instance = None
@@ -15,12 +14,11 @@ def get_llm() -> HelloAgentsLLM:
         HelloAgentsLLM实例
     """
     global _llm_instance
-    
+
     if _llm_instance is None:
-        settings = get_settings()
-        
-        # HelloAgentsLLM会自动从环境变量读取配置
-        # 包括OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL等
+        # HelloAgentsLLM 会自动从环境变量读取配置
+        # 实际读取的是 LLM_MODEL_ID / LLM_API_KEY / LLM_BASE_URL
+        # (见 hello_agents/core/llm.py), 对应的就是 .env 里的那几项
         _llm_instance = HelloAgentsLLM()
         
         print(f"✅ LLM服务初始化成功")

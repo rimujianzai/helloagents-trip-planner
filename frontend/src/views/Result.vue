@@ -119,10 +119,16 @@
         <!-- 每日行程:可折叠 -->
         <a-card title="📅 每日行程" :bordered="false" class="days-card">
           <a-collapse v-model:activeKey="activeDays" accordion>
+            <!-- 必须 force-render: 导出图片/PDF 时是直接复制 .main-content 的 innerHTML,
+                 a-collapse 默认懒渲染(PanelContent 在面板从未激活前返回 null),
+                 未展开天的内容就不在 DOM 里, 导出结果会缺内容。
+                 注意 forceRender 只声明在 CollapsePanel 上(见 ant-design-vue commonProps),
+                 Collapse 不会向下透传, 所以必须写在每个 panel 上 -->
             <a-collapse-panel
               v-for="(day, index) in tripPlan.days"
               :key="index"
               :id="`day-${index}`"
+              :force-render="true"
             >
               <template #header>
                 <div class="day-header">
@@ -153,7 +159,10 @@
                 :data-source="day.attractions"
                 :grid="{ gutter: 16, column: 2 }"
               >
-                <template #renderItem="{ item, index }">
+                <!-- 注意: renderItem 的 index 是"景点"下标, 会遮蔽外层 v-for 的 index,
+                     所以这里改名为 attrIndex; 编辑/删除时数组下标必须用外层的 index(天下标),
+                     不能用 day.day_index(它由后端返回, 不保证等于数组位置) -->
+                <template #renderItem="{ item, index: attrIndex }">
                   <a-list-item>
                     <a-card :title="item.name" size="small" class="attraction-card">
                       <!-- 编辑模式下的操作按钮 -->
@@ -161,22 +170,22 @@
                         <a-space>
                           <a-button
                             size="small"
-                            @click="moveAttraction(day.day_index, index, 'up')"
-                            :disabled="index === 0"
+                            @click="moveAttraction(index, attrIndex, 'up')"
+                            :disabled="attrIndex === 0"
                           >
                             ↑
                           </a-button>
                           <a-button
                             size="small"
-                            @click="moveAttraction(day.day_index, index, 'down')"
-                            :disabled="index === day.attractions.length - 1"
+                            @click="moveAttraction(index, attrIndex, 'down')"
+                            :disabled="attrIndex === day.attractions.length - 1"
                           >
                             ↓
                           </a-button>
                           <a-button
                             size="small"
                             danger
-                            @click="deleteAttraction(day.day_index, index)"
+                            @click="deleteAttraction(index, attrIndex)"
                           >
                             🗑️
                           </a-button>
@@ -186,13 +195,13 @@
                       <!-- 景点图片 -->
                       <div class="attraction-image-wrapper">
                         <img
-                          :src="getAttractionImage(item.name, index)"
+                          :src="getAttractionImage(item.name, attrIndex)"
                           :alt="item.name"
                           class="attraction-image"
                           @error="handleImageError"
                         />
                         <div class="attraction-badge">
-                          <span class="badge-number">{{ index + 1 }}</span>
+                          <span class="badge-number">{{ attrIndex + 1 }}</span>
                         </div>
                         <div v-if="item.ticket_price" class="price-tag">
                           ¥{{ item.ticket_price }}
@@ -242,8 +251,8 @@
               <a-divider orientation="left">🍽️ 餐饮安排</a-divider>
               <a-descriptions :column="1" bordered size="small">
                 <a-descriptions-item
-                  v-for="meal in day.meals"
-                  :key="meal.type"
+                  v-for="(meal, mealIndex) in day.meals"
+                  :key="mealIndex"
                   :label="getMealLabel(meal.type)"
                 >
                   {{ meal.name }}
@@ -316,6 +325,7 @@ import AMapLoader from '@amap/amap-jsapi-loader'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 import type { TripPlan } from '@/types'
+import { API_BASE_URL } from '@/services/api'
 
 const router = useRouter()
 const tripPlan = ref<TripPlan | null>(null)
@@ -326,16 +336,41 @@ const activeSection = ref('overview')
 const activeDays = ref<number[]>([0]) // 默认展开第一天
 let map: any = null
 
+// 校验 sessionStorage 里的数据是否具备渲染所需的最小结构
+const isTripPlan = (value: unknown): value is TripPlan => {
+  if (!value || typeof value !== 'object') return false
+  const plan = value as Partial<TripPlan>
+  return typeof plan.city === 'string' && Array.isArray(plan.days)
+}
+
 onMounted(async () => {
-  const data = sessionStorage.getItem('tripPlan')
-  if (data) {
-    tripPlan.value = JSON.parse(data)
-    // 加载景点图片
-    await loadAttractionPhotos()
-    // 等待DOM渲染完成后初始化地图
-    await nextTick()
-    initMap()
+  const raw = sessionStorage.getItem('tripPlan')
+  if (!raw) return
+
+  let parsed: TripPlan | null = null
+  try {
+    const value: unknown = JSON.parse(raw)
+    parsed = isTripPlan(value) ? value : null
+  } catch (error) {
+    console.error('解析本地行程数据失败:', error)
   }
+
+  if (!parsed) {
+    // 数据损坏或结构不对: 清掉脏数据走空态, 避免在 onMounted 里抛错导致整页白屏
+    sessionStorage.removeItem('tripPlan')
+    message.error('本地缓存的行程数据无效,请重新生成')
+    return
+  }
+
+  tripPlan.value = parsed
+
+  // 等待DOM渲染完成后初始化地图
+  await nextTick()
+  initMap()
+
+  // 景点图片并行加载且不 await: 图片请求要经过后端再打 Unsplash,
+  // 若在地图之前等待, 地图会被图片拖住(最坏可延迟数十秒才出现)
+  loadAttractionPhotos()
 })
 
 const goBack = () => {
@@ -432,7 +467,7 @@ const loadAttractionPhotos = async () => {
 
   tripPlan.value.days.forEach(day => {
     day.attractions.forEach(attraction => {
-      const promise = fetch(`http://localhost:8000/api/poi/photo?name=${encodeURIComponent(attraction.name)}`)
+      const promise = fetch(`${API_BASE_URL}/api/poi/photo?name=${encodeURIComponent(attraction.name)}`)
         .then(res => res.json())
         .then(data => {
           if (data.success && data.data.photo_url) {
@@ -490,6 +525,18 @@ const handleImageError = (event: Event) => {
   img.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="400" height="300"%3E%3Crect width="400" height="300" fill="%23f0f0f0"/%3E%3Ctext x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="18" fill="%23999"%3E图片加载失败%3C/text%3E%3C/svg%3E'
 }
 
+// 导出前, 把副本里折叠的面板显示出来。
+// a-collapse-panel 上的 force-render 只保证内容进入 DOM; 未展开的面板内容仍被 v-show
+// 打上 inline 的 display:none, 复制 innerHTML 时会原样带过去, 导出的图/PDF 里就是空的。
+// 这里只改"已经脱离文档的副本", 不动真实 DOM, 所以既不触发折叠动画也不存在竞态。
+const revealCollapsedPanels = (root: HTMLElement) => {
+  root.querySelectorAll<HTMLElement>('.ant-collapse-content').forEach((el) => {
+    if (el.style.display === 'none') {
+      el.style.display = ''
+    }
+  })
+}
+
 
 
 // 导出为图片
@@ -510,6 +557,8 @@ const exportAsImage = async () => {
 
     // 复制所有内容
     exportContainer.innerHTML = element.innerHTML
+    // 未展开的每日行程在副本里也要可见(详见 revealCollapsedPanels)
+    revealCollapsedPanels(exportContainer)
 
     // 处理地图截图
     const mapContainer = document.getElementById('amap-container')
@@ -605,22 +654,24 @@ const exportAsImage = async () => {
     exportContainer.style.left = '-9999px'
     document.body.appendChild(exportContainer)
 
-    const canvas = await html2canvas(exportContainer, {
-      backgroundColor: '#f5f7fa',
-      scale: 2,
-      logging: false,
-      useCORS: true,
-      allowTaint: true
-    })
+    try {
+      const canvas = await html2canvas(exportContainer, {
+        backgroundColor: '#f5f7fa',
+        scale: 2,
+        logging: false,
+        useCORS: true,
+        allowTaint: true
+      })
 
-    // 移除容器
-    document.body.removeChild(exportContainer)
-
-    // 转换为图片并下载
-    const link = document.createElement('a')
-    link.download = `旅行计划_${tripPlan.value?.city}_${new Date().getTime()}.png`
-    link.href = canvas.toDataURL('image/png')
-    link.click()
+      // 转换为图片并下载
+      const link = document.createElement('a')
+      link.download = `旅行计划_${tripPlan.value?.city}_${new Date().getTime()}.png`
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+    } finally {
+      // 即使 html2canvas 抛错也要摘掉临时容器, 否则它会永久残留在 body 上
+      document.body.removeChild(exportContainer)
+    }
 
     message.success({ content: '图片导出成功!', key: 'export' })
   } catch (error: any) {
@@ -647,6 +698,8 @@ const exportAsPDF = async () => {
 
     // 复制所有内容
     exportContainer.innerHTML = element.innerHTML
+    // 未展开的每日行程在副本里也要可见(详见 revealCollapsedPanels)
+    revealCollapsedPanels(exportContainer)
 
     // 处理地图截图
     const mapContainer = document.getElementById('amap-container')
@@ -742,42 +795,44 @@ const exportAsPDF = async () => {
     exportContainer.style.left = '-9999px'
     document.body.appendChild(exportContainer)
 
-    const canvas = await html2canvas(exportContainer, {
-      backgroundColor: '#f5f7fa',
-      scale: 2,
-      logging: false,
-      useCORS: true,
-      allowTaint: true
-    })
+    try {
+      const canvas = await html2canvas(exportContainer, {
+        backgroundColor: '#f5f7fa',
+        scale: 2,
+        logging: false,
+        useCORS: true,
+        allowTaint: true
+      })
 
-    // 移除容器
-    document.body.removeChild(exportContainer)
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      })
 
-    const imgData = canvas.toDataURL('image/png')
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    })
+      const imgWidth = 210 // A4宽度(mm)
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
 
-    const imgWidth = 210 // A4宽度(mm)
-    const imgHeight = (canvas.height * imgWidth) / canvas.width
+      // 如果内容高度超过一页,分页处理
+      let heightLeft = imgHeight
+      let position = 0
 
-    // 如果内容高度超过一页,分页处理
-    let heightLeft = imgHeight
-    let position = 0
-
-    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-    heightLeft -= 297 // A4高度
-
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight
-      pdf.addPage()
       pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-      heightLeft -= 297
-    }
+      heightLeft -= 297 // A4高度
 
-    pdf.save(`旅行计划_${tripPlan.value?.city}_${new Date().getTime()}.pdf`)
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+        heightLeft -= 297
+      }
+
+      pdf.save(`旅行计划_${tripPlan.value?.city}_${new Date().getTime()}.pdf`)
+    } finally {
+      // 即使 html2canvas 抛错也要摘掉临时容器, 否则它会永久残留在 body 上
+      document.body.removeChild(exportContainer)
+    }
 
     message.success({ content: 'PDF导出成功!', key: 'export' })
   } catch (error: any) {

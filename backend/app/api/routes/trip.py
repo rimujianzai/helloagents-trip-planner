@@ -1,10 +1,10 @@
 """旅行规划API路由"""
 
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from ...models.schemas import (
     TripRequest,
-    TripPlanResponse,
-    ErrorResponse
+    TripPlanResponse
 )
 from ...agents.trip_planner_agent import get_trip_planner_agent
 
@@ -40,8 +40,10 @@ async def plan_trip(request: TripRequest):
         agent = get_trip_planner_agent()
 
         # 生成旅行计划
+        # plan_trip 内部要串行跑 4 次 LLM 调用(实测一次约 40 秒以上)且全是同步阻塞,
+        # 直接在 async 路由里调用会把事件循环占满, 期间其他请求全部排队。
         print("🚀 开始生成旅行计划...")
-        trip_plan = agent.plan_trip(request)
+        trip_plan = await run_in_threadpool(agent.plan_trip, request)
 
         print("✅ 旅行计划生成成功,准备返回响应\n")
 

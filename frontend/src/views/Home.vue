@@ -204,7 +204,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { generateTripPlan } from '@/services/api'
@@ -215,6 +215,29 @@ const router = useRouter()
 const loading = ref(false)
 const loadingProgress = ref(0)
 const loadingStatus = ref('')
+
+// 定时器: 进度模拟 / 延时跳转 / 延时复位。必须在组件卸载时清理,
+// 否则用户在请求进行中离开页面后它们仍会继续运行并改动已卸载组件的状态
+let progressInterval: ReturnType<typeof setInterval> | null = null
+let redirectTimer: ReturnType<typeof setTimeout> | null = null
+let resetTimer: ReturnType<typeof setTimeout> | null = null
+
+const clearTimers = () => {
+  if (progressInterval !== null) {
+    clearInterval(progressInterval)
+    progressInterval = null
+  }
+  if (redirectTimer !== null) {
+    clearTimeout(redirectTimer)
+    redirectTimer = null
+  }
+  if (resetTimer !== null) {
+    clearTimeout(resetTimer)
+    resetTimer = null
+  }
+}
+
+onUnmounted(clearTimers)
 
 type TripFormState = Omit<TripFormData, 'start_date' | 'end_date'> & {
   start_date: Dayjs | null
@@ -249,6 +272,9 @@ watch([() => formData.start_date, () => formData.end_date], ([start, end]) => {
 })
 
 const handleSubmit = async () => {
+  // 重入保护: loading 时按钮只拦截 click, 在输入框里按回车仍会触发原生表单提交
+  if (loading.value) return
+
   if (!formData.start_date || !formData.end_date) {
     message.error('请选择日期')
     return
@@ -259,7 +285,7 @@ const handleSubmit = async () => {
   loadingStatus.value = '正在初始化...'
 
   // 模拟进度更新
-  const progressInterval = setInterval(() => {
+  progressInterval = setInterval(() => {
     if (loadingProgress.value < 90) {
       loadingProgress.value += 10
 
@@ -290,7 +316,7 @@ const handleSubmit = async () => {
 
     const response = await generateTripPlan(requestData)
 
-    clearInterval(progressInterval)
+    clearTimers()
     loadingProgress.value = 100
     loadingStatus.value = '✅ 完成!'
 
@@ -301,20 +327,21 @@ const handleSubmit = async () => {
       message.success('旅行计划生成成功!')
 
       // 短暂延迟后跳转
-      setTimeout(() => {
+      redirectTimer = setTimeout(() => {
         router.push('/result')
       }, 500)
     } else {
       message.error(response.message || '生成失败')
     }
   } catch (error: any) {
-    clearInterval(progressInterval)
+    clearTimers()
     message.error(error.message || '生成旅行计划失败,请稍后重试')
   } finally {
-    setTimeout(() => {
+    resetTimer = setTimeout(() => {
       loading.value = false
       loadingProgress.value = 0
       loadingStatus.value = ''
+      resetTimer = null
     }, 1000)
   }
 }
