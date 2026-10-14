@@ -4,7 +4,7 @@ import json
 import re
 from typing import List, Dict, Any, Optional
 
-from hello_agents.tools import MCPTool
+from .persistent_mcp import PersistentMCPTool
 
 from ..config import get_settings
 from ..models.schemas import Location, POIInfo, RouteInfo, WeatherInfo
@@ -91,12 +91,12 @@ def _parse_location(value: Any) -> Optional[Location]:
         return None
 
 
-def get_amap_mcp_tool() -> MCPTool:
+def get_amap_mcp_tool() -> PersistentMCPTool:
     """
     获取高德地图MCP工具实例(单例模式)
     
     Returns:
-        MCPTool实例
+        PersistentMCPTool实例
     """
     global _amap_mcp_tool
     
@@ -107,7 +107,9 @@ def get_amap_mcp_tool() -> MCPTool:
             raise ValueError("高德地图API Key未配置,请在.env文件中设置AMAP_API_KEY")
         
         # 创建MCP工具
-        _amap_mcp_tool = MCPTool(
+        # 用 PersistentMCPTool: 原生 MCPTool 每次调用都重开一个 uvx 子进程
+        # (实测每次约 2.37s 启动+握手), 这里整个进程复用同一个常驻会话。
+        _amap_mcp_tool = PersistentMCPTool(
             name="amap",
             description="高德地图服务,支持POI搜索、路线规划、天气查询等功能",
             server_command=settings.get_amap_mcp_command(),

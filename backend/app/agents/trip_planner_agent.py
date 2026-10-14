@@ -1,12 +1,14 @@
 """多智能体旅行规划系统"""
 
+import asyncio
 import json
 from typing import Dict, Any, List
 from hello_agents import SimpleAgent
-from hello_agents.tools import MCPTool
 from ..services.llm_service import get_llm
+from ..services.persistent_mcp import PersistentMCPTool
 from ..models.schemas import TripRequest, TripPlan, DayPlan, Attraction, Meal, WeatherInfo, Location, Hotel
 from ..config import get_settings
+from .stateless_agent import StatelessSimpleAgent
 
 # ============ Agent提示词 ============
 
@@ -167,8 +169,10 @@ class MultiAgentTripPlanner:
             self.llm = get_llm()
 
             # 创建共享的MCP工具(只创建一次)
-            print("  - 创建共享MCP工具...")
-            self.amap_tool = MCPTool(
+            # 用 PersistentMCPTool 而非 MCPTool: 后者每次调用都重开一个 uvx 子进程
+            # (实测每次约 2.37s 启动+握手), 这里改为整个进程复用同一个会话。
+            print("  - 创建共享MCP工具(常驻会话)...")
+            self.amap_tool = PersistentMCPTool(
                 name="amap",
                 description="高德地图服务",
                 server_command=settings.get_amap_mcp_command(),
@@ -188,9 +192,12 @@ class MultiAgentTripPlanner:
                 )
             print(f"  - MCP工具发现成功: {len(self.amap_tool._available_tools)} 个")
 
+            # 四个子Agent都用 StatelessSimpleAgent:
+            # 原生 SimpleAgent 会把每轮对话存进 self._history 并在下次调用时带上,
+            # 而这些 Agent 是进程级单例 —— 历史会跨请求无限累积(prompt 膨胀 + 串味)。
             # 创建景点搜索Agent
             print("  - 创建景点搜索Agent...")
-            self.attraction_agent = SimpleAgent(
+            self.attraction_agent = StatelessSimpleAgent(
                 name="景点搜索专家",
                 llm=self.llm,
                 system_prompt=ATTRACTION_AGENT_PROMPT
@@ -199,7 +206,7 @@ class MultiAgentTripPlanner:
 
             # 创建天气查询Agent
             print("  - 创建天气查询Agent...")
-            self.weather_agent = SimpleAgent(
+            self.weather_agent = StatelessSimpleAgent(
                 name="天气查询专家",
                 llm=self.llm,
                 system_prompt=WEATHER_AGENT_PROMPT
@@ -208,7 +215,7 @@ class MultiAgentTripPlanner:
 
             # 创建酒店推荐Agent
             print("  - 创建酒店推荐Agent...")
-            self.hotel_agent = SimpleAgent(
+            self.hotel_agent = StatelessSimpleAgent(
                 name="酒店推荐专家",
                 llm=self.llm,
                 system_prompt=HOTEL_AGENT_PROMPT
@@ -217,7 +224,7 @@ class MultiAgentTripPlanner:
 
             # 创建行程规划Agent(不需要工具)
             print("  - 创建行程规划Agent...")
-            self.planner_agent = SimpleAgent(
+            self.planner_agent = StatelessSimpleAgent(
                 name="行程规划专家",
                 llm=self.llm,
                 system_prompt=PLANNER_AGENT_PROMPT
@@ -317,7 +324,74 @@ class MultiAgentTripPlanner:
             import traceback
             traceback.print_exc()
             return self._create_fallback_plan(request)
-    
+
+    async def plan_trip_async(self, request: TripRequest) -> TripPlan:
+        """
+        并发版 plan_trip: 前三个 Agent 并行, 第四个必须等前三步完成。
+
+        为什么是 asyncio.to_thread 而不是直接 gather:
+            agent.run() 是**同步**函数(SimpleAgent.run -> HelloAgentsLLM.invoke
+            -> 同步 openai 客户端)。在协程里直接调用它会独占事件循环直到返回,
+            gather 拿到的只是"已经算完的返回值", 并发度恒为 1。
+            to_thread 把它丢进工作线程; 阻塞点是网络 I/O(socket 读写会释放 GIL),
+            所以拿到的是真并行。
+
+        实测(2026-10-14, 三路 MCP 搜索): 串行 8.43s -> 并发 2.96s (2.85x)。
+
+        与同步 plan_trip 的关系:
+            日志、返回值、异常降级行为完全一致, 差别只在执行调度。
+            保留 plan_trip 是为了不破坏既有调用方与测试(接口退役是渐进的)。
+        """
+        try:
+            print(f"\n{'='*60}")
+            print(f"🚀 开始多智能体协作规划旅行(并发)...")
+            print(f"目的地: {request.city}")
+            print(f"日期: {request.start_date} 至 {request.end_date}")
+            print(f"天数: {request.travel_days}天")
+            print(f"偏好: {', '.join(request.preferences) if request.preferences else '无'}")
+            print(f"{'='*60}\n")
+
+            # 三个查询之间没有数据依赖, 可以并行构建
+            attraction_query = self._build_attraction_query(request)
+            weather_query = f"请查询{request.city}的天气信息"
+            hotel_query = f"请搜索{request.city}的{request.accommodation}酒店"
+
+            # 步骤1-3: 景点 / 天气 / 酒店 三路并行
+            print("📍 步骤1-3: 并发执行 搜索景点 / 查询天气 / 搜索酒店...")
+            attraction_response, weather_response, hotel_response = await asyncio.gather(
+                asyncio.to_thread(self.attraction_agent.run, attraction_query),
+                asyncio.to_thread(self.weather_agent.run, weather_query),
+                asyncio.to_thread(self.hotel_agent.run, hotel_query),
+            )
+            print(f"景点搜索结果: {attraction_response[:200]}...")
+            print(f"天气查询结果: {weather_response[:200]}...")
+            print(f"酒店搜索结果: {hotel_response[:200]}...\n")
+
+            # 步骤4: 必须等前三步全部返回 —— 它要用三份结果拼 planner_query
+            print("📋 步骤4: 生成行程计划...")
+            planner_query = self._build_planner_query(
+                request, attraction_response, weather_response, hotel_response
+            )
+            planner_response = await asyncio.to_thread(
+                self.planner_agent.run, planner_query
+            )
+            print(f"行程规划结果: {planner_response[:300]}...\n")
+
+            # 解析最终计划
+            trip_plan = self._parse_response(planner_response, request)
+
+            print(f"{'='*60}")
+            print(f"✅ 旅行计划生成完成!")
+            print(f"{'='*60}\n")
+
+            return trip_plan
+
+        except Exception as e:
+            print(f"❌ 生成旅行计划失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return self._create_fallback_plan(request)
+
     def _build_attraction_query(self, request: TripRequest) -> str:
         """构建景点搜索查询 - 直接包含工具调用"""
         keywords = []

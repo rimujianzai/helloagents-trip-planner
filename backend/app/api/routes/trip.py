@@ -40,8 +40,10 @@ async def plan_trip(request: TripRequest):
         agent = get_trip_planner_agent()
 
         # 生成旅行计划
+        # 走并发版: 景点/天气/酒店三路并行, 第四个 Agent 等前三步完成。
+        # (同步版 agent.plan_trip 仍保留, 供既有调用方与测试使用)
         print("🚀 开始生成旅行计划...")
-        trip_plan = agent.plan_trip(request)
+        trip_plan = await agent.plan_trip_async(request)
 
         print("✅ 旅行计划生成成功,准备返回响应\n")
 
