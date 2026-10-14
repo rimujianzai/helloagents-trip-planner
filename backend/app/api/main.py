@@ -64,6 +64,14 @@ async def shutdown_event():
     print("👋 应用正在关闭...")
     print("="*60 + "\n")
 
+    # 关闭常驻的 MCP 会话, 否则会留下孤立的 uvx 子进程
+    try:
+        from ..services.persistent_mcp import shutdown_all_sessions
+        shutdown_all_sessions()
+        print("🔌 已关闭常驻 MCP 会话")
+    except Exception as e:
+        print(f"⚠️ 关闭常驻 MCP 会话时出错: {e}")
+
 
 @app.get("/")
 async def root():

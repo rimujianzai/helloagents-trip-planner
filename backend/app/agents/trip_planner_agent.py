@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from typing import Dict, Any, List
 from hello_agents import SimpleAgent
 from ..services.llm_service import get_llm
@@ -358,10 +359,25 @@ class MultiAgentTripPlanner:
 
             # 步骤1-3: 景点 / 天气 / 酒店 三路并行
             print("📍 步骤1-3: 并发执行 搜索景点 / 查询天气 / 搜索酒店...")
-            attraction_response, weather_response, hotel_response = await asyncio.gather(
-                asyncio.to_thread(self.attraction_agent.run, attraction_query),
-                asyncio.to_thread(self.weather_agent.run, weather_query),
-                asyncio.to_thread(self.hotel_agent.run, hotel_query),
+            wall_start = time.perf_counter()
+            (
+                (_, attraction_response, t_attraction),
+                (_, weather_response, t_weather),
+                (_, hotel_response, t_hotel),
+            ) = await asyncio.gather(
+                self._run_agent_timed(self.attraction_agent, attraction_query),
+                self._run_agent_timed(self.weather_agent, weather_query),
+                self._run_agent_timed(self.hotel_agent, hotel_query),
+            )
+            parallel_wall = time.perf_counter() - wall_start
+            serial_sum = t_attraction + t_weather + t_hotel
+            print(
+                f"⏱️  各步耗时: 景点 {t_attraction:.1f}s / 天气 {t_weather:.1f}s "
+                f"/ 酒店 {t_hotel:.1f}s"
+            )
+            print(
+                f"⏱️  并发墙钟 {parallel_wall:.1f}s "
+                f"(串行约需 {serial_sum:.1f}s, 省 {serial_sum - parallel_wall:.1f}s)"
             )
             print(f"景点搜索结果: {attraction_response[:200]}...")
             print(f"天气查询结果: {weather_response[:200]}...")
@@ -372,9 +388,11 @@ class MultiAgentTripPlanner:
             planner_query = self._build_planner_query(
                 request, attraction_response, weather_response, hotel_response
             )
+            planner_start = time.perf_counter()
             planner_response = await asyncio.to_thread(
                 self.planner_agent.run, planner_query
             )
+            print(f"⏱️  规划耗时: {time.perf_counter() - planner_start:.1f}s")
             print(f"行程规划结果: {planner_response[:300]}...\n")
 
             # 解析最终计划
@@ -391,6 +409,17 @@ class MultiAgentTripPlanner:
             import traceback
             traceback.print_exc()
             return self._create_fallback_plan(request)
+
+    async def _run_agent_timed(self, agent, query: str):
+        """在线程池里跑一次 agent.run, 返回 (agent, 结果, 耗时秒)。
+
+        为什么必须用 asyncio.to_thread 而不是直接 await:
+            agent.run 是同步阻塞函数, 直接调用会独占事件循环直到返回,
+            此时 gather 的并发度会退化成 1(实测耗时与串行完全一致)。
+        """
+        start = time.perf_counter()
+        result = await asyncio.to_thread(agent.run, query)
+        return agent, result, time.perf_counter() - start
 
     def _build_attraction_query(self, request: TripRequest) -> str:
         """构建景点搜索查询 - 直接包含工具调用"""
