@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 from typing import List
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
 # 加载环境变量
@@ -18,6 +18,12 @@ if helloagents_env.exists():
 
 class Settings(BaseSettings):
     """应用配置"""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra="ignore",  # 忽略额外的环境变量
+    )
 
     # 应用基本配置
     app_name: str = "HelloAgents智能旅行助手"
@@ -57,11 +63,6 @@ class Settings(BaseSettings):
 
     # 日志配置
     log_level: str = "INFO"
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
-        extra = "ignore"  # 忽略额外的环境变量
 
     def get_cors_origins_list(self) -> List[str]:
         """获取CORS origins列表"""

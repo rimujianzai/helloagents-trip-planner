@@ -1,7 +1,7 @@
 """数据模型定义"""
 
 from typing import List, Optional, Union
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import date
 
 
@@ -18,8 +18,8 @@ class TripRequest(BaseModel):
     preferences: List[str] = Field(default=[], description="旅行偏好标签", json_schema_extra={"example": ["历史文化", "美食"]})
     free_text_input: Optional[str] = Field(default="", description="额外要求", json_schema_extra={"example": "希望多安排一些博物馆"})
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "city": "北京",
                 "start_date": "2025-06-01",
@@ -31,6 +31,7 @@ class TripRequest(BaseModel):
                 "free_text_input": "希望多安排一些博物馆"
             }
         }
+    )
 
 
 class POISearchRequest(BaseModel):
