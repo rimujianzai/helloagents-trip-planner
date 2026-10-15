@@ -143,7 +143,7 @@ PLANNER_AGENT_PROMPT = """你是行程规划专家。你的任务是根据景点
 **重要提示:**
 1. weather_info数组必须包含每一天的天气信息
 2. 温度必须是纯数字(不要带°C等单位)
-3. 每天安排2-3个景点
+3. 每天安排2-3个景点,同一景点尽量安排连续天数游玩,相邻景点间步行不超过 30 分钟
 4. 考虑景点之间的距离和游览时间
 5. 每天必须包含早中晚三餐
 6. 提供实用的旅行建议
@@ -241,7 +241,7 @@ class MultiAgentTripPlanner:
             import traceback
             traceback.print_exc()
             raise
-    
+
     def list_agents(self) -> Dict[str, SimpleAgent]:
         """
         列出系统中的所有子Agent
@@ -456,18 +456,18 @@ class MultiAgentTripPlanner:
 {hotels}
 
 **要求:**
-1. 每天安排2-3个景点
+1. 每天安排2-3个景点,同一景点尽量安排连续天数游玩,相邻景点间步行不超过 30 分钟
 2. 每天必须包含早中晚三餐
 3. 每天推荐一个具体的酒店(从酒店信息中选择)
-3. 考虑景点之间的距离和交通方式
-4. 返回完整的JSON格式数据
-5. 景点的经纬度坐标要真实准确
+4. 考虑景点之间的距离和交通方式
+5. 返回完整的JSON格式数据
+6. 景点的经纬度坐标要真实准确
 """
         if request.free_text_input:
             query += f"\n**额外要求:** {request.free_text_input}"
 
         return query
-    
+
     def _parse_response(self, response: str, request: TripRequest) -> TripPlan:
         """
         解析Agent响应
@@ -497,32 +497,32 @@ class MultiAgentTripPlanner:
                 json_str = response[json_start:json_end]
             else:
                 raise ValueError("响应中未找到JSON数据")
-            
+
             # 解析JSON
             data = json.loads(json_str)
-            
+
             # 转换为TripPlan对象
             trip_plan = TripPlan(**data)
-            
+
             return trip_plan
-            
+
         except Exception as e:
             print(f"⚠️  解析响应失败: {str(e)}")
             print(f"   将使用备用方案生成计划")
             return self._create_fallback_plan(request)
-    
+
     def _create_fallback_plan(self, request: TripRequest) -> TripPlan:
         """创建备用计划(当Agent失败时)"""
         from datetime import datetime, timedelta
-        
+
         # 解析日期
         start_date = datetime.strptime(request.start_date, "%Y-%m-%d")
-        
+
         # 创建每日行程
         days = []
         for i in range(request.travel_days):
             current_date = start_date + timedelta(days=i)
-            
+
             day_plan = DayPlan(
                 date=current_date.strftime("%Y-%m-%d"),
                 day_index=i,
@@ -547,7 +547,7 @@ class MultiAgentTripPlanner:
                 ]
             )
             days.append(day_plan)
-        
+
         return TripPlan(
             city=request.city,
             start_date=request.start_date,
@@ -570,4 +570,3 @@ def get_trip_planner_agent() -> MultiAgentTripPlanner:
         _multi_agent_planner = MultiAgentTripPlanner()
 
     return _multi_agent_planner
-
