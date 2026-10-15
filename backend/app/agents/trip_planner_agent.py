@@ -295,13 +295,13 @@ class MultiAgentTripPlanner:
 
             # 步骤2: 天气查询Agent查询天气
             print("🌤️  步骤2: 查询天气...")
-            weather_query = f"请查询{request.city}的天气信息"
+            weather_query = self._build_weather_query(request)
             weather_response = self.weather_agent.run(weather_query)
             print(f"天气查询结果: {weather_response[:200]}...\n")
 
             # 步骤3: 酒店推荐Agent搜索酒店
             print("🏨 步骤3: 搜索酒店...")
-            hotel_query = f"请搜索{request.city}的{request.accommodation}酒店"
+            hotel_query = self._build_hotel_query(request)
             hotel_response = self.hotel_agent.run(hotel_query)
             print(f"酒店搜索结果: {hotel_response[:200]}...\n")
 
@@ -354,8 +354,8 @@ class MultiAgentTripPlanner:
 
             # 三个查询之间没有数据依赖, 可以并行构建
             attraction_query = self._build_attraction_query(request)
-            weather_query = f"请查询{request.city}的天气信息"
-            hotel_query = f"请搜索{request.city}的{request.accommodation}酒店"
+            weather_query = self._build_weather_query(request)
+            hotel_query = self._build_hotel_query(request)
 
             # 步骤1-3: 景点 / 天气 / 酒店 三路并行
             print("📍 步骤1-3: 并发执行 搜索景点 / 查询天气 / 搜索酒店...")
@@ -432,6 +432,21 @@ class MultiAgentTripPlanner:
 
         # 直接返回工具调用格式
         query = f"请使用amap_maps_text_search工具搜索{request.city}的{keywords}相关景点。\n[TOOL_CALL:amap_maps_text_search:keywords={keywords},city={request.city}]"
+        return query
+
+    def _build_weather_query(self, request: TripRequest) -> str:
+        """构建天气查询 - 直接包含工具调用"""
+        # 与 _build_attraction_query 一致: 直接返回工具调用格式
+        query = f"请使用amap_maps_weather工具查询{request.city}的天气信息。\n[TOOL_CALL:amap_maps_weather:city={request.city}]"
+        return query
+
+    def _build_hotel_query(self, request: TripRequest) -> str:
+        """构建酒店搜索查询 - 直接包含工具调用"""
+        # 与 _build_attraction_query 一致: 用用户的住宿偏好作为关键词
+        keywords = request.accommodation or "酒店"
+
+        # 直接返回工具调用格式
+        query = f"请使用amap_maps_text_search工具搜索{request.city}的{keywords}。\n[TOOL_CALL:amap_maps_text_search:keywords={keywords},city={request.city}]"
         return query
 
     def _build_planner_query(self, request: TripRequest, attractions: str, weather: str, hotels: str = "") -> str:
