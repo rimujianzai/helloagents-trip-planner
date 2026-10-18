@@ -3,7 +3,7 @@
 import asyncio
 import json
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from hello_agents import SimpleAgent
 from ..services.llm_service import get_llm
 from ..services.persistent_mcp import PersistentMCPTool
@@ -458,7 +458,7 @@ class MultiAgentTripPlanner:
         return query
 
     @staticmethod
-    def _sanitize_free_text(text: str) -> str:
+    def _sanitize_free_text(text: Optional[str]) -> str:
         """净化用户自由输入, 降低提示词注入与协议破坏风险。
 
         做三件事:
