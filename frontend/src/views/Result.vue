@@ -36,6 +36,16 @@
     </div>
 
     <div v-if="tripPlan" class="content-wrapper">
+      <!-- 降级警告：后端生成失败时返回的是占位数据，必须让用户一眼看到 -->
+      <a-alert
+        v-if="tripPlan.is_fallback"
+        class="fallback-alert"
+        type="error"
+        show-icon
+        banner
+        message="本次未能生成真实行程"
+        description="以下内容为占位数据，景点名称与坐标均不可用于实际出行，请返回首页重试。"
+      />
       <!-- 侧边导航 -->
       <div class="side-nav">
         <a-affix :offset-top="80">
@@ -308,13 +318,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { DownOutlined } from '@ant-design/icons-vue'
 import AMapLoader from '@amap/amap-jsapi-loader'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
+import { getAttractionPhoto } from '@/services/api'
 import type { TripPlan } from '@/types'
 
 const router = useRouter()
@@ -325,6 +336,11 @@ const attractionPhotos = ref<Record<string, string>>({})
 const activeSection = ref('overview')
 const activeDays = ref<number[]>([0]) // 默认展开第一天
 let map: any = null
+let mapMarkers: any[] = []
+// 保存 AMap 命名空间，供"保存编辑后只重建覆盖物"使用（避免重新 load 整个 SDK）
+let AMapRef: any = null
+// 组件卸载时用来标记"不要再回写状态"，避免异步回调打到已销毁的组件上
+let disposed = false
 
 onMounted(async () => {
   const data = sessionStorage.getItem('tripPlan')
@@ -332,10 +348,22 @@ onMounted(async () => {
     tripPlan.value = JSON.parse(data)
     // 加载景点图片
     await loadAttractionPhotos()
+    if (disposed) return
     // 等待DOM渲染完成后初始化地图
     await nextTick()
+    if (disposed) return
     initMap()
   }
+})
+
+onUnmounted(() => {
+  // 地图实例和标记必须显式销毁，否则切页面后仍然占着 canvas 与事件监听
+  disposed = true
+  if (map) {
+    map.destroy()
+    map = null
+  }
+  mapMarkers = []
 })
 
 const goBack = () => {
@@ -366,15 +394,17 @@ const saveChanges = () => {
   if (tripPlan.value) {
     sessionStorage.setItem('tripPlan', JSON.stringify(tripPlan.value))
   }
-  message.success('修改已保存')
+  message.success('修改已保存（仅本标签页有效）')
 
-  // 重新初始化地图以反映更改
-  if (map) {
-    map.destroy()
+  // 只重建覆盖物，不销毁地图。
+  // 早期写法是 map.destroy() + initMap()：会重新 load 一次 JS API、重建地图，
+  // 用户会看到地图闪一下，而且当前的缩放/拖动位置被重置回默认视野。
+  // clearMap() 只清标记和路线，地图本身和视野都保留。
+  if (map && AMapRef) {
+    map.clearMap()
+    mapMarkers = []
+    addAttractionMarkers(AMapRef)
   }
-  nextTick(() => {
-    initMap()
-  })
 }
 
 // 取消编辑
@@ -424,30 +454,37 @@ const getMealLabel = (type: string): string => {
   return labels[type] || type
 }
 
-// 加载所有景点图片
+// 配图请求的分批大小。
+// 一次性 Promise.all 在景点多时会同时打出几十个请求，而浏览器同域并发上限
+// （Chrome 为 6）会让后面的请求排队，反而更慢，也更容易触发后端限流。
+const PHOTO_BATCH_SIZE = 6
+
+// 加载所有景点图片（分批并发）
 const loadAttractionPhotos = async () => {
   if (!tripPlan.value) return
 
-  const promises: Promise<void>[] = []
-
+  // 去重，并跳过已经加载过的
+  const pending: string[] = []
   tripPlan.value.days.forEach(day => {
     day.attractions.forEach(attraction => {
-      const promise = fetch(`http://localhost:8000/api/poi/photo?name=${encodeURIComponent(attraction.name)}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && data.data.photo_url) {
-            attractionPhotos.value[attraction.name] = data.data.photo_url
-          }
-        })
-        .catch(err => {
-          console.error(`获取${attraction.name}图片失败:`, err)
-        })
-
-      promises.push(promise)
+      if (!attractionPhotos.value[attraction.name]) {
+        pending.push(attraction.name)
+      }
     })
   })
 
-  await Promise.all(promises)
+  for (let i = 0; i < pending.length; i += PHOTO_BATCH_SIZE) {
+    if (disposed) return
+    const batch = pending.slice(i, i + PHOTO_BATCH_SIZE)
+    await Promise.all(
+      batch.map(async name => {
+        const url = await getAttractionPhoto(name)
+        if (url && !disposed) {
+          attractionPhotos.value[name] = url
+        }
+      })
+    )
+  }
 }
 
 // 获取景点图片
@@ -794,6 +831,7 @@ const initMap = async () => {
       version: '2.0',
       plugins: ['AMap.Marker', 'AMap.Polyline', 'AMap.InfoWindow']
     })
+    AMapRef = AMap
 
     // 创建地图实例
     map = new AMap.Map('amap-container', {
@@ -816,13 +854,23 @@ const initMap = async () => {
 const addAttractionMarkers = (AMap: any) => {
   if (!tripPlan.value) return
 
+  // 重复初始化时先清掉旧标记，避免叠加（例如保存编辑后重建地图）
+  if (mapMarkers.length > 0) {
+    map.remove(mapMarkers)
+    mapMarkers = []
+  }
+
   const markers: any[] = []
   const allAttractions: any[] = []
 
-  // 收集所有景点
+  // 收集所有景点。
+  // 用 != null 而不是真值判断：Boolean(0) === false，而经度 0（本初子午线）
+  // 和纬度 0（赤道）都是合法坐标，真值判断会把它们静默丢掉。
   tripPlan.value.days.forEach((day, dayIndex) => {
     day.attractions.forEach((attraction, attrIndex) => {
-      if (attraction.location && attraction.location.longitude && attraction.location.latitude) {
+      const lon = attraction.location?.longitude
+      const lat = attraction.location?.latitude
+      if (lon != null && lat != null) {
         allAttractions.push({
           ...attraction,
           dayIndex,
@@ -830,6 +878,12 @@ const addAttractionMarkers = (AMap: any) => {
         })
       }
     })
+  })
+
+  // InfoWindow 是浮层，同一时刻只可能显示一个 —— 全局建一个复用就够了。
+  // 每个标记各建一个实例，N 个景点就是 N 个常驻 DOM 节点。
+  const infoWindow = new AMap.InfoWindow({
+    offset: new AMap.Pixel(0, -30)
   })
 
   // 创建标记
@@ -843,9 +897,9 @@ const addAttractionMarkers = (AMap: any) => {
       }
     })
 
-    // 创建信息窗口
-    const infoWindow = new AMap.InfoWindow({
-      content: `
+    // 点击标记时才填充内容并打开
+    marker.on('click', () => {
+      infoWindow.setContent(`
         <div style="padding: 10px;">
           <h4 style="margin: 0 0 8px 0;">${attraction.name}</h4>
           <p style="margin: 4px 0;"><strong>地址:</strong> ${attraction.address}</p>
@@ -853,17 +907,14 @@ const addAttractionMarkers = (AMap: any) => {
           <p style="margin: 4px 0;"><strong>描述:</strong> ${attraction.description}</p>
           <p style="margin: 4px 0; color: #1890ff;"><strong>第${attraction.dayIndex + 1}天 景点${attraction.attrIndex + 1}</strong></p>
         </div>
-      `,
-      offset: new AMap.Pixel(0, -30)
-    })
-
-    // 点击标记显示信息窗口
-    marker.on('click', () => {
+      `)
       infoWindow.open(map, marker.getPosition())
     })
 
     markers.push(marker)
   })
+
+  mapMarkers = markers
 
   // 添加标记到地图
   map.add(markers)
@@ -918,6 +969,13 @@ const drawRoutes = (AMap: any, attractions: any[]) => {
   min-height: 100vh;
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
   padding: 40px 20px;
+}
+
+/* 降级警告条：贴在内容区顶部，不参与卡片布局 */
+.fallback-alert {
+  max-width: 1200px;
+  margin: 0 auto 16px;
+  border-radius: 8px;
 }
 
 .page-header {

@@ -204,7 +204,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { generateTripPlan } from '@/services/api'
@@ -215,6 +215,20 @@ const router = useRouter()
 const loading = ref(false)
 const loadingProgress = ref(0)
 const loadingStatus = ref('')
+
+// 进度条定时器的句柄。提到组件作用域是为了能在卸载时清理 ——
+// 如果只放在 handleSubmit 里，用户中途离开页面就没人 clearInterval，
+// 定时器会一直操作已经卸载的 ref。
+let progressTimer: ReturnType<typeof setInterval> | null = null
+
+const stopProgress = () => {
+  if (progressTimer !== null) {
+    clearInterval(progressTimer)
+    progressTimer = null
+  }
+}
+
+onUnmounted(stopProgress)
 
 type TripFormState = Omit<TripFormData, 'start_date' | 'end_date'> & {
   start_date: Dayjs | null
@@ -258,8 +272,13 @@ const handleSubmit = async () => {
   loadingProgress.value = 0
   loadingStatus.value = '正在初始化...'
 
-  // 模拟进度更新
-  const progressInterval = setInterval(() => {
+  // 模拟进度更新。
+  // 注意：这个进度和真实执行进度**没有任何关系** —— 每 500ms 涨 10%，到 90%
+  // 就停，只按百分比硬编码阶段文案。它解决的是"10 秒没有任何反馈，用户以为
+  // 卡死然后刷新"的体验问题，不是真实进度条。
+  // 真正的进度需要后端用 SSE 推送事件（见后续课程），在那之前不要据此做任何逻辑判断。
+  stopProgress()
+  progressTimer = setInterval(() => {
     if (loadingProgress.value < 90) {
       loadingProgress.value += 10
 
@@ -290,7 +309,7 @@ const handleSubmit = async () => {
 
     const response = await generateTripPlan(requestData)
 
-    clearInterval(progressInterval)
+    stopProgress()
     loadingProgress.value = 100
     loadingStatus.value = '✅ 完成!'
 
@@ -298,7 +317,12 @@ const handleSubmit = async () => {
       // 保存到sessionStorage
       sessionStorage.setItem('tripPlan', JSON.stringify(response.data))
 
-      message.success('旅行计划生成成功!')
+      if (response.data.is_fallback) {
+        // 后端降级：仍然跳转让用户看到结构，但必须明确说明这是占位数据
+        message.warning(response.message || '未能生成真实行程，当前为占位数据')
+      } else {
+        message.success('旅行计划生成成功!')
+      }
 
       // 短暂延迟后跳转
       setTimeout(() => {
@@ -308,7 +332,7 @@ const handleSubmit = async () => {
       message.error(response.message || '生成失败')
     }
   } catch (error: any) {
-    clearInterval(progressInterval)
+    stopProgress()
     message.error(error.message || '生成旅行计划失败,请稍后重试')
   } finally {
     setTimeout(() => {

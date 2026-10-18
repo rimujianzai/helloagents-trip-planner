@@ -8,7 +8,8 @@ export interface Location {
 export interface Attraction {
   name: string
   address: string
-  location: Location
+  /** 经纬度。后端可能返回 null（数据缺失时宁可留空也不编造），渲染前需判空 */
+  location?: Location
   visit_duration: number
   description: string
   category?: string
@@ -74,6 +75,9 @@ export interface TripPlan {
   weather_info: WeatherInfo[]
   overall_suggestions: string
   budget?: Budget
+  /** true 表示后端生成失败、这是占位数据，页面必须显示醒目警告 */
+  is_fallback?: boolean
+  fallback_reason?: string
 }
 
 export interface TripFormData {

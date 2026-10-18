@@ -62,7 +62,11 @@ class Attraction(BaseModel):
     """景点信息"""
     name: str = Field(..., description="景点名称")
     address: str = Field(..., description="地址")
-    location: Location = Field(..., description="经纬度坐标")
+    # 允许为 None: 真实数据缺失坐标时宁可留空, 也不要编造一个默认坐标。
+    # 前端地图会跳过 location 为空的景点, 其余信息照常展示。
+    location: Optional[Location] = Field(
+        default=None, description="经纬度坐标(可能缺失, 缺失时不要编造)"
+    )
     visit_duration: int = Field(..., description="建议游览时间(分钟)")
     description: str = Field(..., description="景点描述")
     category: Optional[str] = Field(default="景点", description="景点类别")
@@ -149,6 +153,10 @@ class TripPlan(BaseModel):
     weather_info: List[WeatherInfo] = Field(default=[], description="天气信息")
     overall_suggestions: str = Field(..., description="总体建议")
     budget: Optional[Budget] = Field(default=None, description="预算信息")
+    # 是否为兜底占位数据。True 表示本次生成实际失败, 内容不可用于真实出行。
+    # 前端必须据此显示醒目提示, 否则用户会把占位内容当成真实行程。
+    is_fallback: bool = Field(default=False, description="是否为兜底占位数据")
+    fallback_reason: Optional[str] = Field(default=None, description="降级原因(仅调试用)")
 
 
 class TripPlanResponse(BaseModel):

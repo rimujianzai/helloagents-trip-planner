@@ -106,6 +106,19 @@ def validate_config():
     if not llm_api_key:
         warnings.append("LLM_API_KEY或OPENAI_API_KEY未配置,LLM功能可能无法使用")
 
+    # 检测「机器级环境变量静默覆盖 .env」的经典陷阱。
+    # hello_agents/core/llm.py 的解析顺序是:
+    #   api_key or DEEPSEEK_API_KEY or LLM_API_KEY
+    # 所以只要机器上残留一个 DEEPSEEK_API_KEY, .env 里的 LLM_API_KEY 就会被忽略,
+    # 且没有任何提示 —— 表现为"服务正常、请求 200, 但用的是另一个 Key"。
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+    if deepseek_key and llm_api_key and deepseek_key != llm_api_key:
+        warnings.append(
+            "DEEPSEEK_API_KEY 与 LLM_API_KEY 同时存在且不同: "
+            "HelloAgents 会优先使用 DEEPSEEK_API_KEY, .env 中的 LLM_API_KEY 实际被忽略。"
+            "若非本意, 请清除机器级 DEEPSEEK_API_KEY 环境变量。"
+        )
+
     if errors:
         error_msg = "配置错误:\n" + "\n".join(f"  - {e}" for e in errors)
         raise ValueError(error_msg)

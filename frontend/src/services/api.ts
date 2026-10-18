@@ -61,5 +61,32 @@ export async function healthCheck(): Promise<any> {
   }
 }
 
+/**
+ * 获取景点配图
+ *
+ * 统一走 apiClient 而不是在组件里 fetch 绝对地址：
+ * 组件里写死 http://localhost:8000 在本地开发时看不出问题，
+ * 一部署到服务器就会全部失败（而且只报 CORS/连接错误，很难定位）。
+ *
+ * 配图属于"锦上添花"，失败不该影响主流程，所以这里吞掉异常返回 null，
+ * 由调用方走占位图。超时也单独收窄到 15s，避免拖住页面。
+ */
+export async function getAttractionPhoto(name: string): Promise<string | null> {
+  try {
+    const response = await apiClient.get('/api/poi/photo', {
+      params: { name },
+      timeout: 15000
+    })
+    const payload = response.data
+    if (payload?.success && payload?.data?.photo_url) {
+      return payload.data.photo_url as string
+    }
+    return null
+  } catch (error) {
+    console.warn(`获取「${name}」配图失败，使用占位图`, error)
+    return null
+  }
+}
+
 export default apiClient
 
