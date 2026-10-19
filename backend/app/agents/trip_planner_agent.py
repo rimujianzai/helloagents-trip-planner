@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import time
 from typing import Dict, Any, List, Optional
 from hello_agents import SimpleAgent
@@ -274,56 +275,15 @@ class MultiAgentTripPlanner:
 
     def plan_trip(self, request: TripRequest) -> TripPlan:
         """
-        使用多智能体协作生成旅行计划
+        同步版 plan_trip。
 
-        Args:
-            request: 旅行请求
-
-        Returns:
-            旅行计划
+        早期版本这里完整复制了 plan_trip_async 的四步流水线（约 60 行重复），
+        修一个 bug 要改两处。现在直接委托给并发版 —— plan_trip_async 的调度
+        （to_thread）只影响「怎么跑」，不影响「跑出什么结果」，同步调用方
+        （既有测试/脚本）用 asyncio.run 包一层即可，行为与原来一致。
         """
         try:
-            print(f"\n{'='*60}")
-            print(f"🚀 开始多智能体协作规划旅行...")
-            print(f"目的地: {request.city}")
-            print(f"日期: {request.start_date} 至 {request.end_date}")
-            print(f"天数: {request.travel_days}天")
-            print(f"偏好: {', '.join(request.preferences) if request.preferences else '无'}")
-            print(f"{'='*60}\n")
-
-            # 步骤1: 景点搜索Agent搜索景点
-            print("📍 步骤1: 搜索景点...")
-            attraction_query = self._build_attraction_query(request)
-            attraction_response = self.attraction_agent.run(attraction_query)
-            print(f"景点搜索结果: {attraction_response[:200]}...\n")
-
-            # 步骤2: 天气查询Agent查询天气
-            print("🌤️  步骤2: 查询天气...")
-            weather_query = self._build_weather_query(request)
-            weather_response = self.weather_agent.run(weather_query)
-            print(f"天气查询结果: {weather_response[:200]}...\n")
-
-            # 步骤3: 酒店推荐Agent搜索酒店
-            print("🏨 步骤3: 搜索酒店...")
-            hotel_query = self._build_hotel_query(request)
-            hotel_response = self.hotel_agent.run(hotel_query)
-            print(f"酒店搜索结果: {hotel_response[:200]}...\n")
-
-            # 步骤4: 行程规划Agent整合信息生成计划
-            print("📋 步骤4: 生成行程计划...")
-            planner_query = self._build_planner_query(request, attraction_response, weather_response, hotel_response)
-            planner_response = self.planner_agent.run(planner_query)
-            print(f"行程规划结果: {planner_response[:300]}...\n")
-
-            # 解析最终计划
-            trip_plan = self._parse_response(planner_response, request)
-
-            print(f"{'='*60}")
-            print(f"✅ 旅行计划生成完成!")
-            print(f"{'='*60}\n")
-
-            return trip_plan
-
+            return asyncio.run(self.plan_trip_async(request))
         except Exception as e:
             print(f"❌ 生成旅行计划失败: {str(e)}")
             import traceback
@@ -523,41 +483,75 @@ class MultiAgentTripPlanner:
 
         return query
 
+    @staticmethod
+    def _extract_json_str(response: str) -> str:
+        """从 LLM 响应文本里抠出 JSON 字符串（三档降级提取）。"""
+        if "```json" in response:
+            json_start = response.find("```json") + len("```json")
+            json_end = response.find("```", json_start)
+            json_str = response[json_start:json_end].strip()
+        elif "```" in response:
+            json_start = response.find("```") + len("```")
+            json_end = response.find("```", json_start)
+            json_str = response[json_start:json_end].strip()
+        elif "{" in response and "}" in response:
+            # 直接查找 JSON 对象（前后可能夹着解释性文字）
+            json_start = response.find("{")
+            json_end = response.rfind("}") + 1
+            json_str = response[json_start:json_end]
+        else:
+            raise ValueError("响应中未找到JSON数据")
+
+        # LLM 偶尔会在对象/数组末尾多打一个逗号，json.loads 会直接失败。
+        # 这里把 ,} 或 ,] 前的逗号去掉（字符串内部的 ",}" 不会被匹配到，
+        # 因为正则要求逗号与闭括号之间只有空白）。
+        json_str = re.sub(r",\s*([}\]])", r"\1", json_str)
+        return json_str
+
+    def _validate_plan(self, plan: TripPlan, request: TripRequest) -> List[str]:
+        """对解析出的计划做语义校验，返回问题描述列表（空列表 = 通过）。
+
+        这是提示词注入与「LLM 胡编」的最后一道闸：输入净化（_sanitize_free_text）
+        挡住的是入口，这里挡的是出口。只校验「错得没有商量余地」的硬伤 ——
+        城市不对、天数不对，这种计划返回给用户比降级占位更糟糕；
+        而缺一顿饭、少一个景点属于质量问题，降级反而更亏，仅记录不拦截。
+        """
+        issues: List[str] = []
+
+        if plan.city and plan.city != request.city:
+            issues.append(f"城市不匹配: 计划={plan.city} 请求={request.city}")
+
+        if len(plan.days) != request.travel_days:
+            issues.append(
+                f"天数不匹配: 计划={len(plan.days)}天 请求={request.travel_days}天"
+            )
+
+        return issues
+
     def _parse_response(self, response: str, request: TripRequest) -> TripPlan:
         """
         解析Agent响应
-        
+
         Args:
             response: Agent响应文本
             request: 原始请求
-            
+
         Returns:
-            旅行计划
+            旅行计划（解析或校验失败时返回降级占位计划）
         """
         try:
-            # 尝试从响应中提取JSON
-            # 查找JSON代码块
-            if "```json" in response:
-                json_start = response.find("```json") + 7
-                json_end = response.find("```", json_start)
-                json_str = response[json_start:json_end].strip()
-            elif "```" in response:
-                json_start = response.find("```") + 3
-                json_end = response.find("```", json_start)
-                json_str = response[json_start:json_end].strip()
-            elif "{" in response and "}" in response:
-                # 直接查找JSON对象
-                json_start = response.find("{")
-                json_end = response.rfind("}") + 1
-                json_str = response[json_start:json_end]
-            else:
-                raise ValueError("响应中未找到JSON数据")
-
-            # 解析JSON
+            json_str = self._extract_json_str(response)
             data = json.loads(json_str)
-
-            # 转换为TripPlan对象
             trip_plan = TripPlan(**data)
+
+            # 语义校验：硬伤直接降级，不让错计划流到前端
+            issues = self._validate_plan(trip_plan, request)
+            if issues:
+                print(f"⚠️  输出语义校验未通过: {'; '.join(issues)}")
+                print("   将使用备用方案生成计划")
+                return self._create_fallback_plan(
+                    request, reason="ValidationError"
+                )
 
             return trip_plan
 

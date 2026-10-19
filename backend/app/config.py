@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     amap_mcp_pydantic_constraint: str = "pydantic<2.12"
 
     # Unsplash API配置
+    # 注意: unsplash_service 只用到 access_key; secret_key 是 OAuth 流程才需要的,
+    # 当前项目没有用到 —— 留在这里只是 Unsplash 控制台把两个 key 一起发了出来。
+    # 不要误以为少配了它会导致图片功能不可用。
     unsplash_access_key: str = ""
     unsplash_secret_key: str = ""
 

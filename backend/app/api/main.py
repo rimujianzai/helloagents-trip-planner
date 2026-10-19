@@ -15,6 +15,10 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     """应用生命周期: 启动时打印并校验配置, 关闭时回收常驻 MCP 会话"""
     # ---------- 启动 ----------
+    # 先配好日志，后面的 warning/exception 才有地方去
+    from ..logging_config import setup_logging
+    setup_logging()
+
     print("\n" + "="*60)
     print(f"🚀 {settings.app_name} v{settings.app_version}")
     print("="*60)

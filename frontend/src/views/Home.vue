@@ -255,9 +255,13 @@ watch([() => formData.start_date, () => formData.end_date], ([start, end]) => {
     } else if (days > 30) {
       message.warning('旅行天数不能超过30天')
       formData.end_date = null
+      // 清掉残留的旧天数：不清的话 travel_days 还停留在上一次的合法值，
+      // 用户会以为当前选择是有效的，提交时校验也就拦不住了
+      formData.travel_days = 0
     } else {
       message.warning('结束日期不能早于开始日期')
       formData.end_date = null
+      formData.travel_days = 0
     }
   }
 })
