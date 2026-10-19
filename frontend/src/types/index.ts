@@ -1,4 +1,10 @@
 // 类型定义
+//
+// ⚠️ 本文件是「手工镜像」：与 backend/app/models/schemas.py 一一对应。
+// 改后端模型后，运行下面两条命令重新生成机器校验版，再对照 diff 修这里：
+//   npm run gen:openapi   # 后端导出 openapi.json
+//   npm run gen:types     # 生成 src/types/api.d.ts（勿手改，机器生成）
+// api.d.ts 是 openapi-typescript 生成的「唯一真相」，本文件若与它冲突，以它为准。
 
 export interface Location {
   longitude: number
