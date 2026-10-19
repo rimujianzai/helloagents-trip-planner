@@ -284,7 +284,7 @@ const handleSubmit = async () => {
   stopProgress()
   progressTimer = setInterval(() => {
     if (loadingProgress.value < 90) {
-      loadingProgress.value += 10
+      loadingProgress.value += 5
 
       // 更新状态文本
       if (loadingProgress.value <= 30) {
@@ -297,7 +297,7 @@ const handleSubmit = async () => {
         loadingStatus.value = '📋 正在生成行程计划...'
       }
     }
-  }, 500)
+  }, 1500)
 
   try {
     const requestData: TripFormData = {
