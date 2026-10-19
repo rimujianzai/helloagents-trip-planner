@@ -1,0 +1,1399 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "HelloAgents智能旅行助手",
+    "description": "基于HelloAgents框架的智能旅行规划助手API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/trip/plan": {
+      "post": {
+        "tags": [
+          "旅行规划"
+        ],
+        "summary": "生成旅行计划",
+        "description": "根据用户输入的旅行需求,生成详细的旅行计划",
+        "operationId": "plan_trip_api_trip_plan_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TripRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripPlanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trip/health": {
+      "get": {
+        "tags": [
+          "旅行规划"
+        ],
+        "summary": "健康检查",
+        "description": "检查旅行规划服务是否正常",
+        "operationId": "health_check_api_trip_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/poi/detail/{poi_id}": {
+      "get": {
+        "tags": [
+          "POI"
+        ],
+        "summary": "获取POI详情",
+        "description": "根据POI ID获取详细信息,包括图片",
+        "operationId": "get_poi_detail_api_poi_detail__poi_id__get",
+        "parameters": [
+          {
+            "name": "poi_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Poi Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/POIDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/poi/search": {
+      "get": {
+        "tags": [
+          "POI"
+        ],
+        "summary": "搜索POI",
+        "description": "根据关键词搜索POI",
+        "operationId": "search_poi_api_poi_search_get",
+        "parameters": [
+          {
+            "name": "keywords",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Keywords"
+            }
+          },
+          {
+            "name": "city",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "北京",
+              "title": "City"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/POISearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/poi/photo": {
+      "get": {
+        "tags": [
+          "POI"
+        ],
+        "summary": "获取景点图片",
+        "description": "根据景点名称从Unsplash获取图片",
+        "operationId": "get_attraction_photo_api_poi_photo_get",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/map/poi": {
+      "get": {
+        "tags": [
+          "地图服务"
+        ],
+        "summary": "搜索POI",
+        "description": "根据关键词搜索POI(兴趣点)",
+        "operationId": "search_poi_api_map_poi_get",
+        "parameters": [
+          {
+            "name": "keywords",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "搜索关键词",
+              "examples": [
+                "故宫"
+              ],
+              "title": "Keywords"
+            },
+            "description": "搜索关键词"
+          },
+          {
+            "name": "city",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "城市",
+              "examples": [
+                "北京"
+              ],
+              "title": "City"
+            },
+            "description": "城市"
+          },
+          {
+            "name": "citylimit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "是否限制在城市范围内",
+              "default": true,
+              "title": "Citylimit"
+            },
+            "description": "是否限制在城市范围内"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/POISearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/map/weather": {
+      "get": {
+        "tags": [
+          "地图服务"
+        ],
+        "summary": "查询天气",
+        "description": "查询指定城市的天气信息",
+        "operationId": "get_weather_api_map_weather_get",
+        "parameters": [
+          {
+            "name": "city",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "城市名称",
+              "examples": [
+                "北京"
+              ],
+              "title": "City"
+            },
+            "description": "城市名称"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeatherResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/map/route": {
+      "post": {
+        "tags": [
+          "地图服务"
+        ],
+        "summary": "规划路线",
+        "description": "规划两点之间的路线",
+        "operationId": "plan_route_api_map_route_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/map/health": {
+      "get": {
+        "tags": [
+          "地图服务"
+        ],
+        "summary": "健康检查",
+        "description": "检查地图服务是否正常",
+        "operationId": "health_check_api_map_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Root",
+        "description": "根路径",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "description": "健康检查",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Attraction": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "景点名称"
+          },
+          "address": {
+            "type": "string",
+            "title": "Address",
+            "description": "地址"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Location"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "经纬度坐标(可能缺失, 缺失时不要编造)"
+          },
+          "visit_duration": {
+            "type": "integer",
+            "title": "Visit Duration",
+            "description": "建议游览时间(分钟)"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "景点描述"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category",
+            "description": "景点类别",
+            "default": "景点"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating",
+            "description": "评分"
+          },
+          "photos": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Photos",
+            "description": "景点图片URL列表"
+          },
+          "poi_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Poi Id",
+            "description": "POI ID",
+            "default": ""
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url",
+            "description": "图片URL"
+          },
+          "ticket_price": {
+            "type": "integer",
+            "title": "Ticket Price",
+            "description": "门票价格(元)",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "address",
+          "visit_duration",
+          "description"
+        ],
+        "title": "Attraction",
+        "description": "景点信息"
+      },
+      "Budget": {
+        "properties": {
+          "total_attractions": {
+            "type": "integer",
+            "title": "Total Attractions",
+            "description": "景点门票总费用",
+            "default": 0
+          },
+          "total_hotels": {
+            "type": "integer",
+            "title": "Total Hotels",
+            "description": "酒店总费用",
+            "default": 0
+          },
+          "total_meals": {
+            "type": "integer",
+            "title": "Total Meals",
+            "description": "餐饮总费用",
+            "default": 0
+          },
+          "total_transportation": {
+            "type": "integer",
+            "title": "Total Transportation",
+            "description": "交通总费用",
+            "default": 0
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "总费用",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "Budget",
+        "description": "预算信息"
+      },
+      "DayPlan": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date",
+            "description": "日期 YYYY-MM-DD"
+          },
+          "day_index": {
+            "type": "integer",
+            "title": "Day Index",
+            "description": "第几天(从0开始)"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "当日行程描述"
+          },
+          "transportation": {
+            "type": "string",
+            "title": "Transportation",
+            "description": "交通方式"
+          },
+          "accommodation": {
+            "type": "string",
+            "title": "Accommodation",
+            "description": "住宿"
+          },
+          "hotel": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Hotel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "推荐酒店"
+          },
+          "attractions": {
+            "items": {
+              "$ref": "#/components/schemas/Attraction"
+            },
+            "type": "array",
+            "title": "Attractions",
+            "description": "景点列表",
+            "default": []
+          },
+          "meals": {
+            "items": {
+              "$ref": "#/components/schemas/Meal"
+            },
+            "type": "array",
+            "title": "Meals",
+            "description": "餐饮列表",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "day_index",
+          "description",
+          "transportation",
+          "accommodation"
+        ],
+        "title": "DayPlan",
+        "description": "单日行程"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Hotel": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "酒店名称"
+          },
+          "address": {
+            "type": "string",
+            "title": "Address",
+            "description": "酒店地址",
+            "default": ""
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Location"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "酒店位置"
+          },
+          "price_range": {
+            "type": "string",
+            "title": "Price Range",
+            "description": "价格范围",
+            "default": ""
+          },
+          "rating": {
+            "type": "string",
+            "title": "Rating",
+            "description": "评分",
+            "default": ""
+          },
+          "distance": {
+            "type": "string",
+            "title": "Distance",
+            "description": "距离景点距离",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "酒店类型",
+            "default": ""
+          },
+          "estimated_cost": {
+            "type": "integer",
+            "title": "Estimated Cost",
+            "description": "预估费用(元/晚)",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "Hotel",
+        "description": "酒店信息"
+      },
+      "Location": {
+        "properties": {
+          "longitude": {
+            "type": "number",
+            "title": "Longitude",
+            "description": "经度"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude",
+            "description": "纬度"
+          }
+        },
+        "type": "object",
+        "required": [
+          "longitude",
+          "latitude"
+        ],
+        "title": "Location",
+        "description": "地理位置"
+      },
+      "Meal": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "餐饮类型: breakfast/lunch/dinner/snack"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "餐饮名称"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address",
+            "description": "地址"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Location"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "经纬度坐标"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "描述"
+          },
+          "estimated_cost": {
+            "type": "integer",
+            "title": "Estimated Cost",
+            "description": "预估费用(元)",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "name"
+        ],
+        "title": "Meal",
+        "description": "餐饮信息"
+      },
+      "POIDetailResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "是否成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "消息",
+            "default": ""
+          },
+          "data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data",
+            "description": "POI详情数据"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "POIDetailResponse",
+        "description": "POI详情响应"
+      },
+      "POIInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "POI ID"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "名称"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "类型",
+            "default": ""
+          },
+          "address": {
+            "type": "string",
+            "title": "Address",
+            "description": "地址",
+            "default": ""
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Location"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "经纬度坐标(搜索结果可能缺失, 需用POI详情补齐)"
+          },
+          "typecode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Typecode",
+            "description": "高德POI分类编码"
+          },
+          "tel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tel",
+            "description": "电话"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "POIInfo",
+        "description": "POI信息"
+      },
+      "POISearchResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "是否成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "消息",
+            "default": ""
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/POIInfo"
+            },
+            "type": "array",
+            "title": "Data",
+            "description": "POI列表",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "POISearchResponse",
+        "description": "POI搜索响应"
+      },
+      "RouteInfo": {
+        "properties": {
+          "distance": {
+            "type": "number",
+            "title": "Distance",
+            "description": "距离(米)"
+          },
+          "duration": {
+            "type": "integer",
+            "title": "Duration",
+            "description": "时间(秒)"
+          },
+          "route_type": {
+            "type": "string",
+            "title": "Route Type",
+            "description": "路线类型"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "路线描述"
+          }
+        },
+        "type": "object",
+        "required": [
+          "distance",
+          "duration",
+          "route_type",
+          "description"
+        ],
+        "title": "RouteInfo",
+        "description": "路线信息"
+      },
+      "RouteRequest": {
+        "properties": {
+          "origin_address": {
+            "type": "string",
+            "title": "Origin Address",
+            "description": "起点地址",
+            "example": "北京市朝阳区阜通东大街6号"
+          },
+          "destination_address": {
+            "type": "string",
+            "title": "Destination Address",
+            "description": "终点地址",
+            "example": "北京市海淀区上地十街10号"
+          },
+          "origin_city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin City",
+            "description": "起点城市"
+          },
+          "destination_city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Destination City",
+            "description": "终点城市"
+          },
+          "route_type": {
+            "type": "string",
+            "title": "Route Type",
+            "description": "路线类型: walking/driving/transit",
+            "default": "walking"
+          }
+        },
+        "type": "object",
+        "required": [
+          "origin_address",
+          "destination_address"
+        ],
+        "title": "RouteRequest",
+        "description": "路线规划请求"
+      },
+      "RouteResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "是否成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "消息",
+            "default": ""
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RouteInfo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "路线信息"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "RouteResponse",
+        "description": "路线规划响应"
+      },
+      "TripPlan": {
+        "properties": {
+          "city": {
+            "type": "string",
+            "title": "City",
+            "description": "目的地城市"
+          },
+          "start_date": {
+            "type": "string",
+            "title": "Start Date",
+            "description": "开始日期"
+          },
+          "end_date": {
+            "type": "string",
+            "title": "End Date",
+            "description": "结束日期"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/DayPlan"
+            },
+            "type": "array",
+            "title": "Days",
+            "description": "每日行程"
+          },
+          "weather_info": {
+            "items": {
+              "$ref": "#/components/schemas/WeatherInfo"
+            },
+            "type": "array",
+            "title": "Weather Info",
+            "description": "天气信息",
+            "default": []
+          },
+          "overall_suggestions": {
+            "type": "string",
+            "title": "Overall Suggestions",
+            "description": "总体建议"
+          },
+          "budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Budget"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "预算信息"
+          },
+          "is_fallback": {
+            "type": "boolean",
+            "title": "Is Fallback",
+            "description": "是否为兜底占位数据",
+            "default": false
+          },
+          "fallback_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback Reason",
+            "description": "降级原因(仅调试用)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "city",
+          "start_date",
+          "end_date",
+          "days",
+          "overall_suggestions"
+        ],
+        "title": "TripPlan",
+        "description": "旅行计划"
+      },
+      "TripPlanResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "是否成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "消息",
+            "default": ""
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TripPlan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "旅行计划数据"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "TripPlanResponse",
+        "description": "旅行计划响应"
+      },
+      "TripRequest": {
+        "properties": {
+          "city": {
+            "type": "string",
+            "title": "City",
+            "description": "目的地城市",
+            "example": "北京"
+          },
+          "start_date": {
+            "type": "string",
+            "title": "Start Date",
+            "description": "开始日期 YYYY-MM-DD",
+            "example": "2025-06-01"
+          },
+          "end_date": {
+            "type": "string",
+            "title": "End Date",
+            "description": "结束日期 YYYY-MM-DD",
+            "example": "2025-06-03"
+          },
+          "travel_days": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Travel Days",
+            "description": "旅行天数",
+            "example": 3
+          },
+          "transportation": {
+            "type": "string",
+            "title": "Transportation",
+            "description": "交通方式",
+            "example": "公共交通"
+          },
+          "accommodation": {
+            "type": "string",
+            "title": "Accommodation",
+            "description": "住宿偏好",
+            "example": "经济型酒店"
+          },
+          "preferences": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Preferences",
+            "description": "旅行偏好标签",
+            "default": [],
+            "example": [
+              "历史文化",
+              "美食"
+            ]
+          },
+          "free_text_input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Text Input",
+            "description": "额外要求",
+            "default": "",
+            "example": "希望多安排一些博物馆"
+          }
+        },
+        "type": "object",
+        "required": [
+          "city",
+          "start_date",
+          "end_date",
+          "travel_days",
+          "transportation",
+          "accommodation"
+        ],
+        "title": "TripRequest",
+        "description": "旅行规划请求",
+        "example": {
+          "accommodation": "经济型酒店",
+          "city": "北京",
+          "end_date": "2025-06-03",
+          "free_text_input": "希望多安排一些博物馆",
+          "preferences": [
+            "历史文化",
+            "美食"
+          ],
+          "start_date": "2025-06-01",
+          "transportation": "公共交通",
+          "travel_days": 3
+        }
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WeatherInfo": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date",
+            "description": "日期 YYYY-MM-DD"
+          },
+          "day_weather": {
+            "type": "string",
+            "title": "Day Weather",
+            "description": "白天天气",
+            "default": ""
+          },
+          "night_weather": {
+            "type": "string",
+            "title": "Night Weather",
+            "description": "夜间天气",
+            "default": ""
+          },
+          "day_temp": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Day Temp",
+            "description": "白天温度",
+            "default": 0
+          },
+          "night_temp": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Night Temp",
+            "description": "夜间温度",
+            "default": 0
+          },
+          "wind_direction": {
+            "type": "string",
+            "title": "Wind Direction",
+            "description": "风向",
+            "default": ""
+          },
+          "wind_power": {
+            "type": "string",
+            "title": "Wind Power",
+            "description": "风力",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "date"
+        ],
+        "title": "WeatherInfo",
+        "description": "天气信息"
+      },
+      "WeatherResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "是否成功"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "消息",
+            "default": ""
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/WeatherInfo"
+            },
+            "type": "array",
+            "title": "Data",
+            "description": "天气信息",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "WeatherResponse",
+        "description": "天气查询响应"
+      }
+    }
+  }
+}
