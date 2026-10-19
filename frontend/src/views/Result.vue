@@ -153,7 +153,7 @@ import { getAttractionPhoto } from '@/services/api'
 import type { TripPlan } from '@/types'
 import { exportPlanAsImage, exportPlanAsPDF } from '@/composables/useExport'
 import { useAmap } from '@/composables/useAmap'
-import { buildShareLink, readPlanFromUrl, isSharedUrl } from '@/composables/usePlanShare'
+import { buildShareLink, readPlanFromUrl, isSharedUrl, updateUrlHash } from '@/composables/usePlanShare'
 import BudgetCard from '@/components/result/BudgetCard.vue'
 import WeatherCards from '@/components/result/WeatherCards.vue'
 import DayItinerary from '@/components/result/DayItinerary.vue'
@@ -230,15 +230,34 @@ const toggleEditMode = () => {
 }
 
 // 保存修改
-const saveChanges = () => {
+const saveChanges = async () => {
   editMode.value = false
-  // 更新sessionStorage
-  if (tripPlan.value) {
-    sessionStorage.setItem('tripPlan', JSON.stringify(tripPlan.value))
-  }
-  // 景点增删/时长修改后，门票相关预算必须跟着变，否则展示的是旧数
+
+  // 景点增删/时长修改后，门票相关预算必须跟着变，否则展示的是旧数。
+  // 注意顺序：必须先把预算算好，再写存储和分享链接，
+  // 否则编码进 URL 的仍然是编辑前的预算。
   recomputeBudget()
-  message.success('修改已保存（仅本标签页有效）')
+
+  if (tripPlan.value) {
+    // 1) 本标签页持久化（刷新不丢）
+    sessionStorage.setItem('tripPlan', JSON.stringify(tripPlan.value))
+
+    // 2) 同步刷新地址栏 hash —— 关键一步。
+    // 之前只写 sessionStorage，地址栏还是编辑前的旧链接：
+    // 用户「改完直接复制地址栏发人」，对方看到的还是改前版本。
+    // 这里保存成功即把最新计划编码进 URL，地址栏本身成为可分享链接。
+    try {
+      await updateUrlHash(tripPlan.value)
+      message.success('修改已保存，地址栏链接已同步更新，可直接复制分享')
+    } catch (e) {
+      // 老浏览器不支持 CompressionStream：保存本身仍然成功，
+      // 只是地址栏不会更新，此时退回「点分享按钮」的旧路径。
+      console.error('同步分享链接失败:', e)
+      message.success('修改已保存（当前浏览器不支持自动更新链接，请点「分享」按钮）')
+    }
+  } else {
+    message.success('修改已保存')
+  }
 
   // 只重建覆盖物，不销毁地图。
   // 早期写法是 map.destroy() + initMap()：会重新 load 一次 JS API、重建地图，

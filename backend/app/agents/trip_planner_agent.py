@@ -4,7 +4,7 @@ import asyncio
 import json
 import re
 import time
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Awaitable, Callable
 from hello_agents import SimpleAgent
 from ..services.llm_service import get_llm
 from ..services.persistent_mcp import PersistentMCPTool
@@ -292,9 +292,18 @@ class MultiAgentTripPlanner:
                 request, reason=type(e).__name__
             )
 
-    async def plan_trip_async(self, request: TripRequest) -> TripPlan:
+    async def plan_trip_async(
+        self,
+        request: TripRequest,
+        progress: Optional[Callable[[str, int, str], Awaitable[None]]] = None,
+    ) -> TripPlan:
         """
         并发版 plan_trip: 前三个 Agent 并行, 第四个必须等前三步完成。
+
+        参数 progress:
+            可选的异步进度回调, 签名 (stage, percent, status) -> awaitable。
+            SSE 端点用它把「真实执行到哪一步」推给前端; 传 None 时行为与
+            旧版完全一致(不产生任何额外开销)。
 
         为什么是 asyncio.to_thread 而不是直接 gather:
             agent.run() 是**同步**函数(SimpleAgent.run -> HelloAgentsLLM.invoke
@@ -309,6 +318,12 @@ class MultiAgentTripPlanner:
             日志、返回值、异常降级行为完全一致, 差别只在执行调度。
             保留 plan_trip 是为了不破坏既有调用方与测试(接口退役是渐进的)。
         """
+
+        async def report(stage: str, percent: int, status: str) -> None:
+            """只在调用方真的需要进度时才 await, 避免空回调引入额外调度。"""
+            if progress is not None:
+                await progress(stage, percent, status)
+
         try:
             print(f"\n{'='*60}")
             print(f"🚀 开始多智能体协作规划旅行(并发)...")
@@ -324,6 +339,7 @@ class MultiAgentTripPlanner:
             hotel_query = self._build_hotel_query(request)
 
             # 步骤1-3: 景点 / 天气 / 酒店 三路并行
+            await report("search", 15, "🔍 正在并行搜索景点 / 天气 / 酒店...")
             print("📍 步骤1-3: 并发执行 搜索景点 / 查询天气 / 搜索酒店...")
             wall_start = time.perf_counter()
             (
@@ -331,9 +347,21 @@ class MultiAgentTripPlanner:
                 (_, weather_response, t_weather),
                 (_, hotel_response, t_hotel),
             ) = await asyncio.gather(
-                self._run_agent_timed(self.attraction_agent, attraction_query),
-                self._run_agent_timed(self.weather_agent, weather_query),
-                self._run_agent_timed(self.hotel_agent, hotel_query),
+                self._run_agent_timed(
+                    self.attraction_agent, attraction_query,
+                    progress=progress, done_status="✅ 景点搜索完成",
+                    done_percent=28,
+                ),
+                self._run_agent_timed(
+                    self.weather_agent, weather_query,
+                    progress=progress, done_status="✅ 天气查询完成",
+                    done_percent=38,
+                ),
+                self._run_agent_timed(
+                    self.hotel_agent, hotel_query,
+                    progress=progress, done_status="✅ 酒店搜索完成",
+                    done_percent=48,
+                ),
             )
             parallel_wall = time.perf_counter() - wall_start
             serial_sum = t_attraction + t_weather + t_hotel
@@ -350,6 +378,7 @@ class MultiAgentTripPlanner:
             print(f"酒店搜索结果: {hotel_response[:200]}...\n")
 
             # 步骤4: 必须等前三步全部返回 —— 它要用三份结果拼 planner_query
+            await report("plan", 60, "📋 正在生成行程计划...")
             print("📋 步骤4: 生成行程计划...")
             planner_query = self._build_planner_query(
                 request, attraction_response, weather_response, hotel_response
@@ -362,6 +391,7 @@ class MultiAgentTripPlanner:
             print(f"行程规划结果: {planner_response[:300]}...\n")
 
             # 解析最终计划
+            await report("parse", 90, "🧩 正在校验并整理行程数据...")
             trip_plan = self._parse_response(planner_response, request)
 
             print(f"{'='*60}")
@@ -378,16 +408,31 @@ class MultiAgentTripPlanner:
                 request, reason=type(e).__name__
             )
 
-    async def _run_agent_timed(self, agent, query: str):
+    async def _run_agent_timed(
+        self,
+        agent,
+        query: str,
+        progress: Optional[Callable[[str, int, str], Awaitable[None]]] = None,
+        done_status: str = "",
+        done_percent: int = 0,
+    ):
         """在线程池里跑一次 agent.run, 返回 (agent, 结果, 耗时秒)。
 
         为什么必须用 asyncio.to_thread 而不是直接 await:
             agent.run 是同步阻塞函数, 直接调用会独占事件循环直到返回,
             此时 gather 的并发度会退化成 1(实测耗时与串行完全一致)。
+
+        参数 progress/done_status/done_percent:
+            三路并行时各自跑完就推一条进度。三路完成顺序不固定,
+            所以百分比可能出现"倒退"(如 48 先于 38 到达);
+            前端按 Math.max 取最大值渲染, 不会让进度条回跳。
         """
         start = time.perf_counter()
         result = await asyncio.to_thread(agent.run, query)
-        return agent, result, time.perf_counter() - start
+        elapsed = time.perf_counter() - start
+        if progress is not None and done_status:
+            await progress("sub", done_percent, done_status)
+        return agent, result, elapsed
 
     def _build_attraction_query(self, request: TripRequest) -> str:
         """构建景点搜索查询 - 直接包含工具调用"""

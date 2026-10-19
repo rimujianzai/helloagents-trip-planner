@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from ..config import get_settings, validate_config, print_config
-from .routes import trip, poi, map as map_routes
+from .routes import trip, map as map_routes
 
 # 获取配置
 settings = get_settings()
@@ -76,8 +76,9 @@ app.add_middleware(
 )
 
 # 注册路由
+# 注意: POI 相关端点已合并进 map_routes（原 poi.py 已删除）,
+# 统一前缀 /api/map, 避免「同一能力两套接口」。
 app.include_router(trip.router, prefix="/api")
-app.include_router(poi.router, prefix="/api")
 app.include_router(map_routes.router, prefix="/api")
 
 

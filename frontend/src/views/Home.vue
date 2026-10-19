@@ -207,7 +207,7 @@
 import { ref, reactive, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { generateTripPlan } from '@/services/api'
+import { generateTripPlan, generateTripPlanStream } from '@/services/api'
 import type { TripFormData } from '@/types'
 import type { Dayjs } from 'dayjs'
 
@@ -216,19 +216,18 @@ const loading = ref(false)
 const loadingProgress = ref(0)
 const loadingStatus = ref('')
 
-// 进度条定时器的句柄。提到组件作用域是为了能在卸载时清理 ——
-// 如果只放在 handleSubmit 里，用户中途离开页面就没人 clearInterval，
-// 定时器会一直操作已经卸载的 ref。
-let progressTimer: ReturnType<typeof setInterval> | null = null
+// 流式请求的中断句柄。提到组件作用域是为了能在卸载时断开 ——
+// 用户中途离开页面却没人 abort，后端会继续跑完整条 LLM 流水线。
+let abortController: AbortController | null = null
 
-const stopProgress = () => {
-  if (progressTimer !== null) {
-    clearInterval(progressTimer)
-    progressTimer = null
+const stopStream = () => {
+  if (abortController) {
+    abortController.abort()
+    abortController = null
   }
 }
 
-onUnmounted(stopProgress)
+onUnmounted(stopStream)
 
 type TripFormState = Omit<TripFormData, 'start_date' | 'end_date'> & {
   start_date: Dayjs | null
@@ -276,28 +275,10 @@ const handleSubmit = async () => {
   loadingProgress.value = 0
   loadingStatus.value = '正在初始化...'
 
-  // 模拟进度更新。
-  // 注意：这个进度和真实执行进度**没有任何关系** —— 每 500ms 涨 10%，到 90%
-  // 就停，只按百分比硬编码阶段文案。它解决的是"10 秒没有任何反馈，用户以为
-  // 卡死然后刷新"的体验问题，不是真实进度条。
-  // 真正的进度需要后端用 SSE 推送事件（见后续课程），在那之前不要据此做任何逻辑判断。
-  stopProgress()
-  progressTimer = setInterval(() => {
-    if (loadingProgress.value < 90) {
-      loadingProgress.value += 5
-
-      // 更新状态文本
-      if (loadingProgress.value <= 30) {
-        loadingStatus.value = '🔍 正在搜索景点...'
-      } else if (loadingProgress.value <= 50) {
-        loadingStatus.value = '🌤️ 正在查询天气...'
-      } else if (loadingProgress.value <= 70) {
-        loadingStatus.value = '🏨 正在推荐酒店...'
-      } else {
-        loadingStatus.value = '📋 正在生成行程计划...'
-      }
-    }
-  }, 1500)
+  // 真实进度：后端在「景点/天气/酒店搜索完成」「开始规划」「校验整理」
+  // 各阶段推 SSE 事件，这里只负责渲染，不再用 setInterval 猜进度。
+  stopStream()
+  abortController = new AbortController()
 
   try {
     const requestData: TripFormData = {
@@ -311,9 +292,30 @@ const handleSubmit = async () => {
       free_text_input: formData.free_text_input
     }
 
-    const response = await generateTripPlan(requestData)
+    let response
+    try {
+      response = await generateTripPlanStream(
+        requestData,
+        (event) => {
+          // 三路并行完成顺序不固定（酒店可能比天气先返回），
+          // 取 max 保证进度条只前进不回跳。
+          loadingProgress.value = Math.max(loadingProgress.value, event.percent)
+          if (event.status) loadingStatus.value = event.status
+        },
+        abortController.signal
+      )
+    } catch (streamError: any) {
+      // 浏览器不支持 ReadableStream 时降级到普通接口：
+      // 功能不受影响，只是拿不到真实进度（进度条停在初始态直到返回）。
+      if (streamError?.message?.includes('不支持流式响应')) {
+        console.warn('当前浏览器不支持流式响应，降级为普通请求')
+        loadingStatus.value = '正在生成行程（当前浏览器不支持实时进度）...'
+        response = await generateTripPlan(requestData)
+      } else {
+        throw streamError
+      }
+    }
 
-    stopProgress()
     loadingProgress.value = 100
     loadingStatus.value = '✅ 完成!'
 
@@ -336,9 +338,12 @@ const handleSubmit = async () => {
       message.error(response.message || '生成失败')
     }
   } catch (error: any) {
-    stopProgress()
-    message.error(error.message || '生成旅行计划失败,请稍后重试')
+    // 用户主动离开页面导致的取消不是错误，不要弹报错
+    if (error?.name !== 'AbortError') {
+      message.error(error.message || '生成旅行计划失败,请稍后重试')
+    }
   } finally {
+    abortController = null
     setTimeout(() => {
       loading.value = false
       loadingProgress.value = 0

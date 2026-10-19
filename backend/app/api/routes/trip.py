@@ -1,8 +1,11 @@
 """旅行规划API路由"""
 
+import asyncio
+import json
 import logging
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from ...models.schemas import (
     TripRequest,
     TripPlanResponse
@@ -15,6 +18,10 @@ from ...agents.trip_planner_agent import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/trip", tags=["旅行规划"])
+
+# SSE 心跳间隔（秒）。planner 那一步可能跑几十秒且中间没有阶段事件，
+# 部分反向代理/浏览器会认为连接空闲而断开，定期发注释行保活。
+SSE_HEARTBEAT_SECONDS = 15
 
 
 @router.post(
@@ -81,6 +88,97 @@ async def plan_trip(request: TripRequest):
             status_code=500,
             detail="生成旅行计划失败，请稍后重试"
         )
+
+
+@router.post(
+    "/plan-stream",
+    summary="生成旅行计划（SSE 实时进度）",
+    description=(
+        "与 POST /api/trip/plan 返回相同的最终结果，但以 text/event-stream "
+        "逐条推送真实执行进度。事件格式：data: {\"stage\",\"percent\",\"status\"[,\"data\"]}\n\n"
+        "前端用 fetch + ReadableStream 读取（EventSource 只支持 GET，无法携带请求体）。"
+    )
+)
+async def plan_trip_stream(request: TripRequest):
+    """SSE 版生成旅行计划。
+
+    为什么需要它：
+        原先前端进度条是 setInterval 每 1.5s 硬涨 5%，和真实执行毫无关系 ——
+        「正在查询天气」时后端可能还在搜景点。这里把 Agent 流水线各阶段的
+        真实完成情况推给前端，进度条才可信。
+
+    实现要点：
+        - 用 asyncio.Queue 解耦「生产事件」与「消费事件」：
+          Agent 在后台任务里跑，事件流在响应生成器里读。
+        - 队列里放 None 作为结束哨兵（区别于正常事件字典）。
+        - 客户端断开时生成器被关闭，finally 里取消后台任务，
+          避免白跑一次完整的 LLM 调用。
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def emit(stage: str, percent: int, status: str, data=None) -> None:
+        payload = {"stage": stage, "percent": percent, "status": status}
+        if data is not None:
+            payload["data"] = data
+        await queue.put(payload)
+
+    async def run() -> None:
+        """后台执行完整流水线，把进度与最终结果写进队列。"""
+        try:
+            agent = get_trip_planner_agent()
+            trip_plan = await agent.plan_trip_async(request, progress=emit)
+
+            if trip_plan.is_fallback:
+                logger.warning("行程生成降级为占位数据: %s", trip_plan.fallback_reason)
+                message_text = "未能生成真实行程，当前为占位数据，请稍后重试"
+            else:
+                message_text = "旅行计划生成成功"
+
+            # 最终结果放在 done 事件里，结构刻意与 /plan 的响应体保持一致，
+            # 前端可以直接复用同一套处理逻辑。
+            await emit("done", 100, "✅ 完成", {
+                "success": True,
+                "message": message_text,
+                "data": trip_plan.model_dump(mode="json"),
+            })
+        except Exception:
+            # 详细堆栈只写日志，回传给客户端的是不含内部细节的通用文案
+            logger.exception("生成旅行计划失败(SSE)")
+            await emit("error", 0, "生成旅行计划失败，请稍后重试")
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(run())
+
+    async def event_stream():
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(
+                        queue.get(), timeout=SSE_HEARTBEAT_SECONDS
+                    )
+                except asyncio.TimeoutError:
+                    # SSE 注释行：客户端会忽略，但能保活连接
+                    yield ": keep-alive\n\n"
+                    continue
+
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # 关闭 nginx 的响应缓冲，否则事件会被攒起来一次性下发
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get(

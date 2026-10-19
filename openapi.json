@@ -48,6 +48,46 @@
         }
       }
     },
+    "/api/trip/plan-stream": {
+      "post": {
+        "tags": [
+          "旅行规划"
+        ],
+        "summary": "生成旅行计划（SSE 实时进度）",
+        "description": "与 POST /api/trip/plan 返回相同的最终结果，但以 text/event-stream 逐条推送真实执行进度。事件格式：data: {\"stage\",\"percent\",\"status\"[,\"data\"]}\n\n前端用 fetch + ReadableStream 读取（EventSource 只支持 GET，无法携带请求体）。",
+        "operationId": "plan_trip_stream_api_trip_plan_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TripRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/trip/health": {
       "get": {
         "tags": [
@@ -62,143 +102,6 @@
             "content": {
               "application/json": {
                 "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/poi/detail/{poi_id}": {
-      "get": {
-        "tags": [
-          "POI"
-        ],
-        "summary": "获取POI详情",
-        "description": "根据POI ID获取详细信息,包括图片",
-        "operationId": "get_poi_detail_api_poi_detail__poi_id__get",
-        "parameters": [
-          {
-            "name": "poi_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Poi Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/POIDetailResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/poi/search": {
-      "get": {
-        "tags": [
-          "POI"
-        ],
-        "summary": "搜索POI",
-        "description": "根据关键词搜索POI",
-        "operationId": "search_poi_api_poi_search_get",
-        "parameters": [
-          {
-            "name": "keywords",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Keywords"
-            }
-          },
-          {
-            "name": "city",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "北京",
-              "title": "City"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/POISearchResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/poi/photo": {
-      "get": {
-        "tags": [
-          "POI"
-        ],
-        "summary": "获取景点图片",
-        "description": "根据景点名称从Unsplash获取图片",
-        "operationId": "get_attraction_photo_api_poi_photo_get",
-        "parameters": [
-          {
-            "name": "name",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Name"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
               }
             }
           }
@@ -263,6 +166,90 @@
                 "schema": {
                   "$ref": "#/components/schemas/POISearchResponse"
                 }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/map/poi/detail/{poi_id}": {
+      "get": {
+        "tags": [
+          "地图服务"
+        ],
+        "summary": "获取POI详情",
+        "description": "根据POI ID获取详细信息（含图片）",
+        "operationId": "get_poi_detail_api_map_poi_detail__poi_id__get",
+        "parameters": [
+          {
+            "name": "poi_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Poi Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/POIDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/map/photo": {
+      "get": {
+        "tags": [
+          "地图服务"
+        ],
+        "summary": "获取景点图片",
+        "description": "根据景点名称从Unsplash获取图片",
+        "operationId": "get_attraction_photo_api_map_photo_get",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },

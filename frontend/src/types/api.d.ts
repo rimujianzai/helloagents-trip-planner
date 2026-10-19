@@ -24,6 +24,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/trip/plan-stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 生成旅行计划（SSE 实时进度）
+         * @description 与 POST /api/trip/plan 返回相同的最终结果，但以 text/event-stream 逐条推送真实执行进度。事件格式：data: {"stage","percent","status"[,"data"]}
+         *
+         *     前端用 fetch + ReadableStream 读取（EventSource 只支持 GET，无法携带请求体）。
+         */
+        post: operations["plan_trip_stream_api_trip_plan_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/trip/health": {
         parameters: {
             query?: never;
@@ -44,66 +66,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/poi/detail/{poi_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * 获取POI详情
-         * @description 根据POI ID获取详细信息,包括图片
-         */
-        get: operations["get_poi_detail_api_poi_detail__poi_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/poi/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * 搜索POI
-         * @description 根据关键词搜索POI
-         */
-        get: operations["search_poi_api_poi_search_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/poi/photo": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * 获取景点图片
-         * @description 根据景点名称从Unsplash获取图片
-         */
-        get: operations["get_attraction_photo_api_poi_photo_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/map/poi": {
         parameters: {
             query?: never;
@@ -116,6 +78,46 @@ export interface paths {
          * @description 根据关键词搜索POI(兴趣点)
          */
         get: operations["search_poi_api_map_poi_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/map/poi/detail/{poi_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 获取POI详情
+         * @description 根据POI ID获取详细信息（含图片）
+         */
+        get: operations["get_poi_detail_api_map_poi_detail__poi_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/map/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 获取景点图片
+         * @description 根据景点名称从Unsplash获取图片
+         */
+        get: operations["get_attraction_photo_api_map_photo_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -906,6 +908,39 @@ export interface operations {
             };
         };
     };
+    plan_trip_stream_api_trip_plan_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TripRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_check_api_trip_health_get: {
         parameters: {
             query?: never;
@@ -926,7 +961,43 @@ export interface operations {
             };
         };
     };
-    get_poi_detail_api_poi_detail__poi_id__get: {
+    search_poi_api_map_poi_get: {
+        parameters: {
+            query: {
+                /** @description 搜索关键词 */
+                keywords: string;
+                /** @description 城市 */
+                city: string;
+                /** @description 是否限制在城市范围内 */
+                citylimit?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["POISearchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_poi_detail_api_map_poi_detail__poi_id__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -957,39 +1028,7 @@ export interface operations {
             };
         };
     };
-    search_poi_api_poi_search_get: {
-        parameters: {
-            query: {
-                keywords: string;
-                city?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["POISearchResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_attraction_photo_api_poi_photo_get: {
+    get_attraction_photo_api_map_photo_get: {
         parameters: {
             query: {
                 name: string;
@@ -1007,42 +1046,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    search_poi_api_map_poi_get: {
-        parameters: {
-            query: {
-                /** @description 搜索关键词 */
-                keywords: string;
-                /** @description 城市 */
-                city: string;
-                /** @description 是否限制在城市范围内 */
-                citylimit?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["POISearchResponse"];
                 };
             };
             /** @description Validation Error */

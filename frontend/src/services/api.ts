@@ -48,6 +48,98 @@ export async function generateTripPlan(formData: TripFormData): Promise<TripPlan
   }
 }
 
+/** SSE 事件结构（与后端 trip.py 的 emit 一一对应） */
+export interface PlanStreamEvent {
+  stage: string
+  percent: number
+  status: string
+  /** 仅在 stage === 'done' 时存在，结构与 /plan 的响应体一致 */
+  data?: TripPlanResponse
+}
+
+/**
+ * 流式生成旅行计划（SSE 真实进度）
+ *
+ * 为什么不用 EventSource：
+ *   EventSource 只支持 GET，且无法携带请求体。旅行需求是一个 JSON 对象，
+ *   塞进 query string 既难读又会超长，所以改用 fetch + ReadableStream
+ *   手动解析 SSE 协议（服务端仍然是标准的 text/event-stream）。
+ *
+ * 参数 onEvent：
+ *   每收到一条进度事件回调一次。注意三路并行搜索的完成顺序不固定，
+ *   percent 可能出现 48 早于 38 到达的情况，调用方应取最大值渲染。
+ */
+export async function generateTripPlanStream(
+  formData: TripFormData,
+  onEvent: (event: PlanStreamEvent) => void,
+  signal?: AbortSignal
+): Promise<TripPlanResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/trip/plan-stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(formData),
+    signal
+  })
+
+  if (!response.ok) {
+    throw new Error(`生成旅行计划失败 (HTTP ${response.status})`)
+  }
+  if (!response.body) {
+    // 老浏览器 / 被 polyfill 拦截的情况，让调用方降级到普通接口
+    throw new Error('当前浏览器不支持流式响应')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let finalResult: TripPlanResponse | null = null
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      // SSE 以空行分隔事件；最后一段可能不完整，留在 buffer 里等下一轮
+      const chunks = buffer.split('\n\n')
+      buffer = chunks.pop() ?? ''
+
+      for (const chunk of chunks) {
+        // 心跳是 ": keep-alive" 注释行，没有 data: 前缀，直接跳过
+        const dataLines = chunk
+          .split('\n')
+          .filter(line => line.startsWith('data:'))
+          .map(line => line.slice(5).trim())
+        if (dataLines.length === 0) continue
+
+        let event: PlanStreamEvent
+        try {
+          event = JSON.parse(dataLines.join('\n'))
+        } catch {
+          // 单条事件解析失败不应中断整个流
+          continue
+        }
+
+        if (event.stage === 'error') {
+          throw new Error(event.status || '生成旅行计划失败')
+        }
+        if (event.stage === 'done' && event.data) {
+          finalResult = event.data
+        }
+        onEvent(event)
+      }
+    }
+  } finally {
+    // 正常读完或抛错都要释放 reader，否则连接可能一直挂着
+    reader.releaseLock()
+  }
+
+  if (!finalResult) {
+    throw new Error('未收到完整的行程数据')
+  }
+  return finalResult
+}
+
 /**
  * 健康检查
  */
@@ -73,7 +165,7 @@ export async function healthCheck(): Promise<any> {
  */
 export async function getAttractionPhoto(name: string): Promise<string | null> {
   try {
-    const response = await apiClient.get('/api/poi/photo', {
+    const response = await apiClient.get('/api/map/photo', {
       params: { name },
       timeout: 15000
     })

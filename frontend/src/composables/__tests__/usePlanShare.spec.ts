@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { buildShareLink, readPlanFromUrl, isSharedUrl } from '../usePlanShare'
+import { buildShareLink, readPlanFromUrl, isSharedUrl, updateUrlHash } from '../usePlanShare'
 import type { TripPlan } from '@/types'
 
 // usePlanShare 依赖三类浏览器 API：
@@ -84,5 +84,19 @@ describe('usePlanShare', () => {
     const link = await buildShareLink(plan)
     expect(link.startsWith(`${location.origin}${location.pathname}#plan=`)).toBe(true)
     expect(link).not.toContain('something-old')
+  })
+
+  it('updateUrlHash 用最新计划覆盖地址栏旧链接', async () => {
+    // 模拟「编辑前生成的旧分享链接还挂在地址栏」的场景
+    location.hash = '#plan=stale-old-version'
+
+    await updateUrlHash(plan)
+
+    expect(isSharedUrl()).toBe(true)
+    expect(location.hash).not.toContain('stale-old-version')
+
+    // 覆盖后必须能解回最新计划 —— 这正是「改完复制地址栏发人」的正确性保证
+    const decoded = await readPlanFromUrl()
+    expect(decoded).toEqual(plan)
   })
 })

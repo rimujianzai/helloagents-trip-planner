@@ -47,6 +47,21 @@ export async function buildShareLink(plan: TripPlan): Promise<string> {
   return `${base}${HASH_PREFIX}${encoded}`
 }
 
+/**
+ * 把计划编码后直接写回地址栏 hash（不刷新页面）。
+ *
+ * 用途：用户编辑行程后点「保存修改」，若只写 sessionStorage，地址栏里还是
+ * 编辑前的旧链接 —— 用户直接复制地址栏发给别人，对方看到的仍是改前版本。
+ * 这里在保存时同步刷新 hash，保证「地址栏即最新版本」，从根上消除这个坑。
+ *
+ * 用 history.replaceState 而不是给 location.hash 赋值：后者会往历史栈里
+ * 压一条新记录，用户点后退会退到上一个 hash（仍是本页），体验很怪。
+ */
+export async function updateUrlHash(plan: TripPlan): Promise<void> {
+  const encoded = await gzip(JSON.stringify(plan))
+  history.replaceState(null, '', `${HASH_PREFIX}${encoded}`)
+}
+
 /** 如果当前 URL 带有分享的计划，解码并返回；否则返回 null */
 export async function readPlanFromUrl(): Promise<TripPlan | null> {
   if (!location.hash.startsWith(HASH_PREFIX)) return null
