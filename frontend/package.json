@@ -9,8 +9,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gen:openapi": "python scripts/dump_openapi.py",
-    "gen:types": "openapi-typescript ../openapi.json --output src/types/api.d.ts"
+    "gen:openapi": "node scripts/gen-openapi.mjs",
+    "gen:types": "openapi-typescript ../openapi.json --output src/types/api.d.ts",
+    "gen:api": "npm run gen:openapi && npm run gen:types"
   },
   "dependencies": {
     "@amap/amap-jsapi-loader": "^1.0.1",

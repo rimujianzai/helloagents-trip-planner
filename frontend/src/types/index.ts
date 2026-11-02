@@ -1,91 +1,38 @@
 // 类型定义
 //
-// ⚠️ 本文件是「手工镜像」：与 backend/app/models/schemas.py 一一对应。
-// 改后端模型后，运行下面两条命令重新生成机器校验版，再对照 diff 修这里：
-//   npm run gen:openapi   # 后端导出 openapi.json
-//   npm run gen:types     # 生成 src/types/api.d.ts（勿手改，机器生成）
-// api.d.ts 是 openapi-typescript 生成的「唯一真相」，本文件若与它冲突，以它为准。
+// 数据模型（Attraction / DayPlan / TripPlan 等）不再手写，直接从
+// src/types/api.d.ts 派生 —— 那个文件由 openapi-typescript 从后端的
+// openapi.json 生成，是「唯一真相」。
+//
+// 后端改字段后跑一条命令同步：
+//   npm run gen:api      # = gen:openapi + gen:types
+//
+// 以前这里是手写镜像，文件头虽然写着「以 api.d.ts 为准」，但实际上没人
+// 真的去对照：Attraction 就漏了 photos / poi_id 两个后端会返回的字段，
+// 前端想用时 TS 报「属性不存在」，还得回头翻后端代码才知道有这俩字段。
+// 改成派生之后，字段一有出入编译期就报错，不依赖「记得去对」这种自觉。
 
-export interface Location {
-  longitude: number
-  latitude: number
-}
+import type { components } from './api'
 
-export interface Attraction {
-  name: string
-  address: string
-  /** 经纬度。后端可能返回 null（数据缺失时宁可留空也不编造），渲染前需判空 */
-  location?: Location
-  visit_duration: number
-  description: string
-  category?: string
-  rating?: number
-  image_url?: string
-  ticket_price?: number
-}
+type Schemas = components['schemas']
 
-export interface Meal {
-  type: 'breakfast' | 'lunch' | 'dinner' | 'snack'
-  name: string
-  address?: string
-  location?: Location
-  description?: string
-  estimated_cost?: number
-}
+export type Location = Schemas['Location']
+export type Attraction = Schemas['Attraction']
+export type Meal = Schemas['Meal']
+export type Hotel = Schemas['Hotel']
+export type Budget = Schemas['Budget']
+export type DayPlan = Schemas['DayPlan']
+export type WeatherInfo = Schemas['WeatherInfo']
+export type TripPlan = Schemas['TripPlan']
+export type TripPlanResponse = Schemas['TripPlanResponse']
 
-export interface Hotel {
-  name: string
-  address: string
-  location?: Location
-  price_range: string
-  rating: string
-  distance: string
-  type: string
-  estimated_cost?: number
-}
-
-export interface Budget {
-  total_attractions: number
-  total_hotels: number
-  total_meals: number
-  total_transportation: number
-  total: number
-}
-
-export interface DayPlan {
-  date: string
-  day_index: number
-  description: string
-  transportation: string
-  accommodation: string
-  hotel?: Hotel
-  attractions: Attraction[]
-  meals: Meal[]
-}
-
-export interface WeatherInfo {
-  date: string
-  day_weather: string
-  night_weather: string
-  day_temp: number
-  night_temp: number
-  wind_direction: string
-  wind_power: string
-}
-
-export interface TripPlan {
-  city: string
-  start_date: string
-  end_date: string
-  days: DayPlan[]
-  weather_info: WeatherInfo[]
-  overall_suggestions: string
-  budget?: Budget
-  /** true 表示后端生成失败、这是占位数据，页面必须显示醒目警告 */
-  is_fallback?: boolean
-  fallback_reason?: string
-}
-
+/**
+ * 前端表单模型，刻意不从 TripRequest 派生。
+ *
+ * 后端 TripRequest 里 free_text_input 是 Optional（默认空串），派生过来会
+ * 变成可选字段，表单这边就得处处判空。表单提交时它始终是字符串
+ * （空串 = 用户没填），所以这里手写一个更严格的版本。
+ */
 export interface TripFormData {
   city: string
   start_date: string
@@ -96,10 +43,3 @@ export interface TripFormData {
   preferences: string[]
   free_text_input: string
 }
-
-export interface TripPlanResponse {
-  success: boolean
-  message: string
-  data?: TripPlan
-}
-

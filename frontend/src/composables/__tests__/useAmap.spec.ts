@@ -88,13 +88,22 @@ function makePlan(attrs: Array<{ lon?: number; lat?: number }>): TripPlan {
               ? { longitude: a.lon, latitude: a.lat }
               : undefined,
           visit_duration: 60,
-          description: 'd'
+          description: 'd',
+          // 以下三个字段后端一定会返回（category / poi_id 允许为 null，
+          // ticket_price 有默认值 0）。类型改为从 openapi 派生后，
+          // mock 数据也得给全，否则编译期就过不去。
+          category: null,
+          poi_id: null,
+          ticket_price: 0
         })),
         meals: []
       }
     ],
     weather_info: [],
-    overall_suggestions: 's'
+    overall_suggestions: 's',
+    // 后端必定返回该字段（false = 正常计划，true = 降级占位），
+    // 类型从 openapi 派生后 mock 必须给全
+    is_fallback: false
   }
 }
 

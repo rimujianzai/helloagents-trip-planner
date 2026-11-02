@@ -25,10 +25,14 @@ const plan: TripPlan = {
           address: '杭州市西湖区',
           location: { longitude: 120.14, latitude: 30.25 },
           visit_duration: 120,
-          description: '湖'
+          description: '湖',
+          // 后端必返回的字段，类型从 openapi 派生后 mock 必须给全
+          category: null,
+          poi_id: null,
+          ticket_price: 0
         }
       ],
-      meals: [{ type: 'breakfast', name: '早餐' }]
+      meals: [{ type: 'breakfast', name: '早餐', estimated_cost: 0 }]
     }
   ],
   weather_info: [],
