@@ -18,6 +18,15 @@ from .stateless_agent import StatelessSimpleAgent
 # 超长输入基本只有两种可能: 误粘贴, 或者试图用长文本淹没系统指令。
 MAX_FREE_TEXT_LEN = 500
 
+# 反馈回路的最大轮数。
+# 规划 Agent 产出计划后，如果检查发现「某天没景点 / 景点缺坐标 / 没推荐酒店」
+# 这类软问题，就回头让对应的搜索 Agent 带着「上一版哪里不足」重查一次，
+# 再用新素材重新规划。
+# 为什么要设上限：这类循环没有天然终止条件 —— 模型永远可以「觉得还不够好」，
+# 不封顶就会一直重查，把耗时和 token 拖爆。实测第 1 轮能修掉绝大多数问题，
+# 第 2 轮收益已经很小，所以封在 2 轮。
+MAX_REFINE_ROUNDS = 2
+
 ATTRACTION_AGENT_PROMPT = """你是景点搜索专家。你的任务是根据城市和用户偏好搜索合适的景点。
 
 **重要提示:**
@@ -394,8 +403,63 @@ class MultiAgentTripPlanner:
             await report("parse", 90, "🧩 正在校验并整理行程数据...")
             trip_plan = self._parse_response(planner_response, request)
 
+            # ===== 步骤5: 反馈回路 =====
+            # 规划 Agent 是「一次性」的：拿到什么素材就写什么计划，写歪了没人纠正。
+            # 这里补一个闭环 —— 检查产出的计划，把「哪里不行」翻译成搜索指令，
+            # 让对应 Agent 重查，再用新素材重新规划。
+            # 与 _validate_plan 的分工：那边管硬伤（城市/天数错）直接降级；
+            # 这边管软伤（缺景点/缺坐标/缺酒店），靠补查修复而不是放弃整份计划。
+            refine_round = 0
+            while not trip_plan.is_fallback and refine_round < MAX_REFINE_ROUNDS:
+                issues = self._check_plan_quality(trip_plan, request)
+                if not issues:
+                    print("✅ 计划质量检查通过，无需补查")
+                    break
+
+                refine_round += 1
+                targets = "、".join(sorted({i["target"] for i in issues}))
+                print(f"\n🔁 第 {refine_round} 轮反馈：发现 {len(issues)} 个质量问题")
+                for it in issues:
+                    print(f"   - [{it['target']}] {it['message']}")
+                await report(
+                    "refine",
+                    70 + refine_round * 5,
+                    f"🔁 计划有 {len(issues)} 处不足，正在让 {targets} Agent 重查…",
+                )
+
+                # 回头重查：只重跑有问题的那个 Agent，没问题的复用原结果
+                refreshed = await self._recheck_sources(
+                    request,
+                    issues,
+                    attraction_response,
+                    weather_response,
+                    hotel_response,
+                    progress=progress,
+                )
+                attraction_response = refreshed["attraction"]
+                weather_response = refreshed["weather"]
+                hotel_response = refreshed["hotel"]
+
+                # 用新素材 + 明确的修正要求重新规划
+                planner_query = self._build_planner_query(
+                    request, attraction_response, weather_response, hotel_response
+                ) + self._build_planner_refine_hint(issues, refine_round)
+                planner_start = time.perf_counter()
+                planner_response = await asyncio.to_thread(
+                    self.planner_agent.run, planner_query
+                )
+                print(f"⏱️  重新规划耗时: {time.perf_counter() - planner_start:.1f}s")
+
+                new_plan = self._parse_response(planner_response, request)
+                if new_plan.is_fallback:
+                    # 补查后反而解析失败：保留上一版能用的计划，别越修越差
+                    print("⚠️  重新规划触发降级，保留上一版计划")
+                    break
+                trip_plan = new_plan
+
             print(f"{'='*60}")
-            print(f"✅ 旅行计划生成完成!")
+            suffix = f"（含 {refine_round} 轮反馈重查）" if refine_round else ""
+            print(f"✅ 旅行计划生成完成!{suffix}")
             print(f"{'='*60}\n")
 
             return trip_plan
@@ -572,6 +636,169 @@ class MultiAgentTripPlanner:
             )
 
         return issues
+
+    # ============ 反馈回路：质量检查 / 补查 / 修正提示 ============
+
+    def _check_plan_quality(
+        self, plan: TripPlan, request: TripRequest
+    ) -> List[Dict[str, str]]:
+        """检查计划的「软伤」，返回问题列表（空列表 = 通过）。
+
+        只查那些「能明确指出来、并且能靠补查修掉」的问题。
+        城市错、天数错属于硬伤，交给 _validate_plan 直接降级，不在这里重复。
+
+        每条问题都带 target 字段，标明该让哪个搜索 Agent 重查 ——
+        这是反馈回路能把「问题描述」变成「可执行动作」的关键：
+        没有 target 就只是打印一行日志，有了 target 才能真的触发重查。
+        """
+        issues: List[Dict[str, str]] = []
+        if not plan.days:
+            return issues
+
+        # 1. 某天完全没有景点
+        empty_days = [d.day_index + 1 for d in plan.days if not d.attractions]
+        if empty_days:
+            issues.append({
+                "target": "attraction",
+                "message": f"第 {empty_days} 天没有任何景点安排",
+            })
+
+        # 2. 某天景点过少（有但不足 2 个，行程会显得很空）
+        thin_days = [d.day_index + 1 for d in plan.days if 0 < len(d.attractions) < 2]
+        if thin_days:
+            issues.append({
+                "target": "attraction",
+                "message": f"第 {thin_days} 天景点过少（不足 2 个）",
+            })
+
+        # 3. 景点缺坐标 —— 前端地图要按经纬度打点，缺了就画不出来
+        no_coord = sum(
+            1 for d in plan.days for a in d.attractions if a.location is None
+        )
+        if no_coord:
+            issues.append({
+                "target": "attraction",
+                "message": f"有 {no_coord} 个景点缺少经纬度坐标，前端地图无法标注",
+            })
+
+        # 4. 天气覆盖天数不足
+        if len(plan.weather_info) < request.travel_days:
+            issues.append({
+                "target": "weather",
+                "message": (
+                    f"天气只覆盖 {len(plan.weather_info)} 天，"
+                    f"少于行程的 {request.travel_days} 天"
+                ),
+            })
+
+        # 5. 整份计划没有任何酒店推荐
+        if not any(d.hotel for d in plan.days):
+            issues.append({
+                "target": "hotel",
+                "message": "整份计划没有推荐任何酒店",
+            })
+
+        # 6. 雨雪天要优先室内景点
+        rainy_days = [
+            d.day_index + 1
+            for d in plan.days
+            if any(k in self._weather_text_of(plan, d.date) for k in ("雨", "雪"))
+        ]
+        if rainy_days:
+            issues.append({
+                "target": "attraction",
+                "message": f"第 {rainy_days} 天有雨雪，需要优先安排室内景点",
+            })
+
+        return issues
+
+    @staticmethod
+    def _weather_text_of(plan: TripPlan, date: str) -> str:
+        """把某天的天气拼成一个字符串，方便做关键词判断。"""
+        for w in plan.weather_info:
+            if w.date == date:
+                return f"{w.day_weather} {w.night_weather}"
+        return ""
+
+    async def _recheck_sources(
+        self,
+        request: TripRequest,
+        issues: List[Dict[str, str]],
+        attraction_response: str,
+        weather_response: str,
+        hotel_response: str,
+        progress: Optional[Callable[[str, int, str], Awaitable[None]]] = None,
+    ) -> Dict[str, str]:
+        """按问题类型回头重查对应 Agent，返回更新后的三份素材。
+
+        只重跑「被点名」的 Agent：景点不够就只补景点，不去重跑天气和酒店。
+        已经合格的素材要保留 —— 全部重跑既费 token，又可能把原本正确的内容
+        换成另一批同样不确定的结果，属于越修越差。
+        """
+        hints: Dict[str, List[str]] = {}
+        for it in issues:
+            hints.setdefault(it["target"], []).append(it["message"])
+
+        results = {
+            "attraction": attraction_response,
+            "weather": weather_response,
+            "hotel": hotel_response,
+        }
+
+        if "attraction" in hints:
+            query = self._build_attraction_query(request) + self._refine_hint(
+                hints["attraction"]
+            )
+            _, results["attraction"], _ = await self._run_agent_timed(
+                self.attraction_agent,
+                query,
+                progress=progress,
+                done_status="🔁 景点补查完成",
+                done_percent=76,
+            )
+
+        if "weather" in hints:
+            query = self._build_weather_query(request) + self._refine_hint(
+                hints["weather"]
+            )
+            _, results["weather"], _ = await self._run_agent_timed(
+                self.weather_agent,
+                query,
+                progress=progress,
+                done_status="🔁 天气补查完成",
+                done_percent=80,
+            )
+
+        if "hotel" in hints:
+            query = self._build_hotel_query(request) + self._refine_hint(
+                hints["hotel"]
+            )
+            _, results["hotel"], _ = await self._run_agent_timed(
+                self.hotel_agent,
+                query,
+                progress=progress,
+                done_status="🔁 酒店补查完成",
+                done_percent=84,
+            )
+
+        return results
+
+    @staticmethod
+    def _refine_hint(messages: List[str]) -> str:
+        """把问题列表翻译成给搜索 Agent 的补充指令。"""
+        return (
+            f"\n\n【补查要求】上一轮结果存在这些问题：{'；'.join(messages)}。"
+            f"请针对这些不足重新搜索，给出更完整、更具体的结果。"
+        )
+
+    @staticmethod
+    def _build_planner_refine_hint(issues: List[Dict[str, str]], round_no: int) -> str:
+        """给规划 Agent 的修正提示：明确告诉它上一版哪里不行。"""
+        return (
+            f"\n\n【第 {round_no} 轮修正】上一版计划存在这些问题："
+            f"{'；'.join(i['message'] for i in issues)}。"
+            f"本次已重新搜索素材，请务必修正上述问题，再输出完整 JSON。"
+        )
 
     def _parse_response(self, response: str, request: TripRequest) -> TripPlan:
         """
